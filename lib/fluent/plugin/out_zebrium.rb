@@ -12,8 +12,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   DEFAULT_FORMAT_TYPE = 'json'
   DEFAULT_BUFFER_TYPE = "memory"
 
-  config_param :ze_label_branch, :string, :default => ""
+  config_param :ze_log_collector_url, :string, :default => ""
+  config_param :ze_log_collector_token, :integer, :default => 0
   config_param :ze_label_build, :string, :default => ""
+  config_param :ze_label_branch, :string, :default => ""
   config_param :ze_label_node, :string, :default => ""
   config_param :ze_label_tsuite, :string, :default => ""
   config_param :use_buffer, :bool, :default => true
@@ -30,7 +32,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
   def initialize
     super
-    @output_fh = File.open("/tmp/out_zebrium.log", "ab")
   end
 
   def multi_workers_ready?
@@ -59,8 +60,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @http                        = HTTPClient.new(@zapi_url)
     @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
     @http.connect_timeout        = 60
-    @zapi_url = "https://192.168.120.54:30401/api/v1/post"
-    @auth_token = 0
+    @zapi_url = conf["ze_log_collector_url"]
+    @auth_token = conf["ze_log_collector_token"]
+    log.info("zapi_url=" + @zapi_url)
+    log.info("auth_token=" + @auth_token.to_s)
   end
 
 # def format(tag, time, record)
@@ -86,11 +89,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   end
 
   def post_data(data, headers)
-    log.info("post_data: headers: " + headers.to_s)
-    log.info("post_data: zapi_url " + @zapi_url)
-    log.info("post_data: data start ===============================")
-    log.info("post_data: data " + data)
-    log.info("post_data: data end =================================")
+    log.trace("post_data: headers: " + headers.to_s)
     myio = StringIO.new(data)
     class <<myio
       undef :size
@@ -102,11 +101,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   end
 
   def process(tag, es)
-    @output_fh.write("process() called\n")
-    @output_fh.flush
     es = inject_values_to_event_stream(tag, es)
     es.each {|time,record|
-      #@output_fh.write(format(tag, time, record))
       if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
           str = ""
           kubernetes = record["kubernetes"].clone
@@ -118,35 +114,31 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
               str = str + "label:" + k + "=" + v + ","
           end
           str = str + "\n"
-
-          @output_fh.write(str)
       end
     }
-    @output_fh.flush
   end
 
   def write(chunk)
-    @output_fh.write("write() called\n")
-    @output_fh.flush
-    log.info("write() called\n")
+    log.trace("out_zebrium: write() called")
     tag = chunk.metadata.tag
     messages_list = {}
 
     headers = {}
     messages = []
     chunk.each do |entry|
-      log.info("entry: " + entry.to_s + "\n")
+      log.trace("out_zebrium:entry: " + entry.to_s + "\n")
       record = entry[1]
       if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
         if headers.empty?
           headers = get_request_headers(record)
           kubernetes = record["kubernetes"]
+          headers["X-Ze-Stream-Name"] = kubernetes["container_name"]
+          headers["X-Ze-Stream-Type"] = "native"
+          headers["X-Ze-Source-UUID"] = kubernetes["host"]
           headers["X-Ze-Source-Stream"] = kubernetes["container_name"]
           headers["Authorization"] = "Token " + @auth_token.to_s
           headers["Content-Type"] = "application/octet-stream"
           headers["Transfer-Encoding"] = "chunked"
-          headers["X-Ze-Stream-Type"] = "native"
-          headers["X-Ze-Source-UUID"] = kubernetes["host"]
         end
         messages.push(record["log"])
       end
