@@ -32,6 +32,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
   def initialize
     super
+    @default_header_values = {
+                                "X-Ze-Source-Pool" => "build01",
+                                "X-Ze-Source-UUID" => "node01"
+                             }
   end
 
   def multi_workers_ready?
@@ -77,12 +81,17 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     host = kubernetes["host"]
     headers = {}
     kubernetes["labels"].each do |k, v|
-      log.info("kubernetes label: " + k)
+      log.trace("kubernetes label: " + k)
       @label_header_map.each do |l, h|
         if k == l
           headers[h] = v
           break
         end
+      end
+    end
+    @default_header_values.each do |k, v|
+      if not headers.key?(k)
+        headers[k] = v
       end
     end
     headers
@@ -119,7 +128,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   end
 
   def write(chunk)
-    log.trace("out_zebrium: write() called")
+    log.trace("out_zebrium: write() called tag=", tag)
     tag = chunk.metadata.tag
     messages_list = {}
 
