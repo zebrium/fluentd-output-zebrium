@@ -94,6 +94,15 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         headers[k] = v
       end
     end
+    headers["X-Ze-Stream-Name"] = kubernetes["container_name"]
+    headers["X-Ze-Stream-Type"] = "native"
+    # User can use node label on pod to override "host" meta data from kubernetes
+    if not headers.key?("X-Ze-Source-UUID")
+      headers["X-Ze-Source-UUID"] = kubernetes["host"]
+    end
+    headers["Authorization"] = "Token " + @auth_token.to_s
+    headers["Content-Type"] = "application/octet-stream"
+    headers["Transfer-Encoding"] = "chunked"
     headers
   end
 
@@ -128,9 +137,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   end
 
   def write(chunk)
-    log.trace("out_zebrium: write() called tag=", tag)
     tag = chunk.metadata.tag
     messages_list = {}
+    log.trace("out_zebrium: write() called tag=", tag)
 
     headers = {}
     messages = []
@@ -140,14 +149,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
         if headers.empty?
           headers = get_request_headers(record)
-          kubernetes = record["kubernetes"]
-          headers["X-Ze-Stream-Name"] = kubernetes["container_name"]
-          headers["X-Ze-Stream-Type"] = "native"
-          headers["X-Ze-Source-UUID"] = kubernetes["host"]
-          headers["X-Ze-Source-Stream"] = kubernetes["container_name"]
-          headers["Authorization"] = "Token " + @auth_token.to_s
-          headers["Content-Type"] = "application/octet-stream"
-          headers["Transfer-Encoding"] = "chunked"
         end
         messages.push(record["log"])
       end
