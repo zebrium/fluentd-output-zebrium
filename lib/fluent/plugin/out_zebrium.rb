@@ -33,9 +33,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   def initialize
     super
     @default_header_values = {
-                                "X-Ze-Source-Pool" => "build01",
                                 "X-Ze-Source-UUID" => "node01"
                              }
+    File.open("/mnt/etc/hostname", "r").each do |line|
+      @etc_hostname = line.strip().chomp
+    end
   end
 
   def multi_workers_ready?
@@ -68,6 +70,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @auth_token = conf["ze_log_collector_token"]
     log.info("zapi_url=" + @zapi_url)
     log.info("auth_token=" + @auth_token.to_s)
+    log.info("etc_hostname=" + @etc_hostname)
   end
 
 # def format(tag, time, record)
@@ -76,30 +79,38 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 # end
 
   def get_request_headers(record)
-    kubernetes = record["kubernetes"]
-    container_name = kubernetes["container_name"]
-    host = kubernetes["host"]
     headers = {}
-    kubernetes["labels"].each do |k, v|
-      log.trace("kubernetes label: " + k)
-      @label_header_map.each do |l, h|
-        if k == l
-          headers[h] = v
-          break
+    if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
+      kubernetes = record["kubernetes"]
+      container_name = kubernetes["container_name"]
+      host = kubernetes["host"]
+      kubernetes["labels"].each do |k, v|
+        log.trace("kubernetes label: " + k)
+        @label_header_map.each do |l, h|
+          if k == l
+            headers[h] = v
+            break
+          end
         end
       end
+      headers["X-Ze-Stream-Name"] = kubernetes["container_name"]
+      if not headers.key?("X-Ze-Source-UUID")
+        headers["X-Ze-Source-UUID"] = kubernetes["host"]
+      end
+    elsif record.key?("message")
+      headers["X-Ze-Source-UUID"] = @etc_hostname
+      if record.key?("tailed_path")
+        headers["X-Ze-Stream-Name"] = File.basename(record["tailed_path"], ".*")
+      end
     end
+
     @default_header_values.each do |k, v|
       if not headers.key?(k)
         headers[k] = v
       end
     end
-    headers["X-Ze-Stream-Name"] = kubernetes["container_name"]
     headers["X-Ze-Stream-Type"] = "native"
     # User can use node label on pod to override "host" meta data from kubernetes
-    if not headers.key?("X-Ze-Source-UUID")
-      headers["X-Ze-Source-UUID"] = kubernetes["host"]
-    end
     headers["Authorization"] = "Token " + @auth_token.to_s
     headers["Content-Type"] = "application/octet-stream"
     headers["Transfer-Encoding"] = "chunked"
@@ -146,14 +157,16 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     chunk.each do |entry|
       log.trace("out_zebrium:entry: " + entry.to_s + "\n")
       record = entry[1]
+      if headers.empty?
+        headers = get_request_headers(record)
+      end
       if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
-        if headers.empty?
-          headers = get_request_headers(record)
-        end
-        messages.push(record["log"])
+        messages.push(record["log"].chomp)
+      elsif record.key?("message")
+        messages.push(record["message"].chomp)
       end
     end
-    post_data(messages.join(""), headers)
+    post_data(messages.join("\n"), headers)
   end
 
   # This method is called when starting.
