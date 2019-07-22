@@ -4,7 +4,7 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |gem|
   gem.name          = "fluent-plugin-zebrium_output"
-  gem.version       = "0.1.0"
+  gem.version       = "1.0.0"
   gem.authors       = ["Zebrium, Inc"]
   gem.description   = %q{Output plugin to Zebrium HTTP LOG COLLECTOR SERVER}
   gem.summary       = %q{Zebrium fluentd output plugin}
