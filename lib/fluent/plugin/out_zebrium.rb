@@ -118,7 +118,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   end
 
   def post_data(data, headers)
-    log.trace("post_data: headers: " + headers.to_s)
+    log.info("post_data: headers: " + headers.to_s)
     myio = StringIO.new(data)
     class <<myio
       undef :size
@@ -150,7 +150,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   def write(chunk)
     tag = chunk.metadata.tag
     messages_list = {}
-    log.trace("out_zebrium: write() called tag=", tag)
+    log.info("out_zebrium: write() called tag=", tag)
 
     headers = {}
     messages = []
