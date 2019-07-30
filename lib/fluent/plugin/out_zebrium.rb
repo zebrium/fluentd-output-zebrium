@@ -97,6 +97,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       if not headers.key?("X-Ze-Source-UUID")
         headers["X-Ze-Source-UUID"] = kubernetes["host"]
       end
+      if not headers.key?("X-Ze-Window-Meta")
+        headers["X-Ze-Window-Meta"] = kubernetes["pod_name"]
+      end
     elsif record.key?("message")
       headers["X-Ze-Source-UUID"] = @etc_hostname
       if record.key?("tailed_path")
