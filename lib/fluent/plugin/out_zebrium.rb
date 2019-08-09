@@ -35,8 +35,18 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @default_header_values = {
                                 "X-Ze-Source-UUID" => "node01"
                              }
-    File.open("/mnt/etc/hostname", "r").each do |line|
-      @etc_hostname = line.strip().chomp
+    if File.file?("/mnt/etc/hostname")
+      # Inside fluentd container
+      File.open("/mnt/etc/hostname", "r").each do |line|
+        @etc_hostname = line.strip().chomp
+      end
+    elsif File.file?("/etc/hostname")
+      # Run directly on host
+      File.open("/etc/hostname", "r").each do |line|
+        @etc_hostname = line.strip().chomp
+      end
+    else
+        @etc_hostname = `hostname`.strip().chomp
     end
   end
 
@@ -63,10 +73,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
                           conf["ze_label_tsuite"] => "X-Ze-Window-Meta"
                         }
     log.info("label_header_map: " + @label_header_map.to_s)
-    @http                        = HTTPClient.new(@zapi_url)
+    @http                        = HTTPClient.new()
     @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
     @http.connect_timeout        = 60
-    @zapi_url = conf["ze_log_collector_url"]
+    @zapi_url = conf["ze_log_collector_url"] + "/api/v1/post"
     @auth_token = conf["ze_log_collector_token"]
     log.info("zapi_url=" + @zapi_url)
     log.info("auth_token=" + @auth_token.to_s)
@@ -121,7 +131,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   end
 
   def post_data(data, headers)
-    log.info("post_data: headers: " + headers.to_s)
+    log.info("post_data to " + @zapi_url + ": headers: " + headers.to_s)
     myio = StringIO.new(data)
     class <<myio
       undef :size
