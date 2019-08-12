@@ -18,6 +18,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :ze_label_branch, :string, :default => ""
   config_param :ze_label_node, :string, :default => ""
   config_param :ze_label_tsuite, :string, :default => ""
+  config_param :ze_tag_build, :string, :default => ""
+  config_param :ze_tag_branch, :string, :default => ""
+  config_param :ze_tag_tsuite, :string, :default => ""
+  config_param :ze_tag_node, :string, :default => ""
   config_param :use_buffer, :bool, :default => true
 
   config_section :format do
@@ -72,6 +76,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
                           conf["ze_label_node"]   => "X-Ze-Source-UUID",
                           conf["ze_label_tsuite"] => "X-Ze-Window-Meta"
                         }
+    @ze_tags = {
+                 "ze_tag_branch" => conf["ze_tag_branch"],
+                 "ze_tag_build" => conf["ze_tag_build"],
+                 "ze_tag_tsuite" => conf["ze_tag_tsuite"],
+                 "ze_tag_node" => conf["ze_tag_node"]
+                }
     log.info("label_header_map: " + @label_header_map.to_s)
     @http                        = HTTPClient.new()
     @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
@@ -115,6 +125,18 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       if record.key?("tailed_path")
         headers["X-Ze-Stream-Name"] = File.basename(record["tailed_path"], ".*")
       end
+      unless @ze_tags["ze_tag_branch"].empty?
+        headers["X-Ze-Source-Meta"] = @ze_tags["ze_tag_branch"]
+      end
+      unless @ze_tags["ze_tag_build"].empty?
+        headers["X-Ze-Source-Pool"] = @ze_tags["ze_tag_build"]
+      end
+      unless @ze_tags["ze_tag_tsuite"].empty?
+        headers["X-Ze-Window-Meta"] = @ze_tags["ze_tag_tsuite"]
+      end
+      unless @ze_tags["ze_tag_node"].empty?
+        headers["X-Ze-Source-UUID"] = @ze_tags["ze_tag_node"]
+      end
     end
 
     @default_header_values.each do |k, v|
@@ -131,7 +153,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   end
 
   def post_data(data, headers)
-    log.info("post_data to " + @zapi_url + ": headers: " + headers.to_s)
+    log.trace("post_data to " + @zapi_url + ": headers: " + headers.to_s)
     myio = StringIO.new(data)
     class <<myio
       undef :size
@@ -163,7 +185,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   def write(chunk)
     tag = chunk.metadata.tag
     messages_list = {}
-    log.info("out_zebrium: write() called tag=", tag)
+    log.trace("out_zebrium: write() called tag=", tag)
 
     headers = {}
     messages = []
