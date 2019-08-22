@@ -104,12 +104,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       kubernetes = record["kubernetes"]
       container_name = kubernetes["container_name"]
       host = kubernetes["host"]
-      kubernetes["labels"].each do |k, v|
-        log.trace("kubernetes label: " + k)
-        @label_header_map.each do |l, h|
-          if k == l
-            headers[h] = v
-            break
+      unless kubernetes["labels"].nil?
+        kubernetes["labels"].each do |k, v|
+          log.trace("kubernetes label: " + k)
+          @label_header_map.each do |l, h|
+            if k == l
+              headers[h] = v
+              break
+            end
           end
         end
       end
