@@ -125,16 +125,16 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       if record.key?("tailed_path")
         headers["X-Ze-Stream-Name"] = File.basename(record["tailed_path"], ".*")
       end
-      unless @ze_tags["ze_tag_branch"].empty?
+      unless @ze_tags["ze_tag_branch"].nil? or @ze_tags["ze_tag_branch"].empty?
         headers["X-Ze-Source-Meta"] = @ze_tags["ze_tag_branch"]
       end
-      unless @ze_tags["ze_tag_build"].empty?
+      unless @ze_tags["ze_tag_build"].nil? or @ze_tags["ze_tag_build"].empty?
         headers["X-Ze-Source-Pool"] = @ze_tags["ze_tag_build"]
       end
-      unless @ze_tags["ze_tag_tsuite"].empty?
+      unless @ze_tags["ze_tag_tsuite"].nil? or @ze_tags["ze_tag_tsuite"].empty?
         headers["X-Ze-Window-Meta"] = @ze_tags["ze_tag_tsuite"]
       end
-      unless @ze_tags["ze_tag_node"].empty?
+      unless @ze_tags["ze_tag_node"].nil? or @ze_tags["ze_tag_node"].empty?
         headers["X-Ze-Source-UUID"] = @ze_tags["ze_tag_node"]
       end
     end
