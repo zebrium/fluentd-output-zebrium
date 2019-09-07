@@ -2,6 +2,7 @@ require 'fluent/plugin/output'
 require 'net/https'
 require 'yajl'
 require 'httpclient'
+require 'json'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -36,9 +37,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
   def initialize
     super
-    @default_header_values = {
-                                "X-Ze-Source-UUID" => "node01"
-                             }
     if File.file?("/mnt/etc/hostname")
       # Inside fluentd container
       File.open("/mnt/etc/hostname", "r").each do |line|
@@ -52,6 +50,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     else
         @etc_hostname = `hostname`.strip().chomp
     end
+    # Pod names can have two formats:
+    # 1. <deployment_name>-84ff57c87c-pc6xm
+    # 2. <deployment_name>-pc6xm
+    # We use the following two regext to find deployment name. Ideally we want kubernetes filter
+    # to pass us deployment name, but currently it doesn't.
+    @pod_name_to_deployment_name_regexp_long_compiled = Regexp.compile('(?<deployment_name>[a-z0-9]([-a-z0-9]*))-[a-f0-9]{9,10}-[a-z0-9]{5}')
+    @pod_name_to_deployment_name_regexp_short_compiled = Regexp.compile('(?<deployment_name>[a-z0-9]([-a-z0-9]*))-[a-z0-9]{5}')
+    @stream_tokens = {}
   end
 
   def multi_workers_ready?
@@ -70,12 +76,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     compat_parameters_convert(conf, :inject, :formatter)
     super
     @formatter = formatter_create
-    @label_header_map = {
-                          conf["ze_label_branch"] => "X-Ze-Source-Meta",
-                          conf["ze_label_build"]  => "X-Ze-Source-Pool",
-                          conf["ze_label_node"]   => "X-Ze-Source-UUID",
-                          conf["ze_label_tsuite"] => "X-Ze-Window-Meta"
-                        }
     @ze_tags = {
                  "ze_tag_branch" => conf["ze_tag_branch"],
                  "ze_tag_build" => conf["ze_tag_build"],
@@ -86,9 +86,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @http                        = HTTPClient.new()
     @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
     @http.connect_timeout        = 60
-    @zapi_url = conf["ze_log_collector_url"] + "/api/v1/post"
+    @zapi_token_url = conf["ze_log_collector_url"] + "/api/v2/token"
+    @zapi_post_url = conf["ze_log_collector_url"] + "/api/v2/post"
     @auth_token = conf["ze_log_collector_token"]
-    log.info("zapi_url=" + @zapi_url)
+    log.info("log_collector_url=" + conf["ze_log_collector_url"])
     log.info("auth_token=" + @auth_token.to_s)
     log.info("etc_hostname=" + @etc_hostname)
   end
@@ -100,70 +101,150 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
   def get_request_headers(record)
     headers = {}
+    ids = {}
+    cfgs = {}
+    tags = {}
+
+    if record.key?("docker") and not record.fetch("docker").nil?
+        container_id = record["docker"]["container_id"]
+        ids["container_id"] = container_id
+    end
+
     if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
       kubernetes = record["kubernetes"]
-      container_name = kubernetes["container_name"]
-      host = kubernetes["host"]
-      unless kubernetes["labels"].nil?
-        kubernetes["labels"].each do |k, v|
-          log.trace("kubernetes label: " + k)
-          @label_header_map.each do |l, h|
-            if k == l
-              headers[h] = v
+      logbasename = kubernetes["container_name"]
+      keys = [
+               "namespace_name", "namespace_id", "pod_name", "pod_id",
+               "host", "container_name", "container_image", "container_image_id"
+              ]
+      for k in keys do
+          ids[k] = kubernetes[k]
+      end
+
+      for pattern in [ @pod_name_to_deployment_name_regexp_long_compiled, @pod_name_to_deployment_name_regexp_short_compiled ] do
+          match_data = kubernetes["pod_name"].match(pattern)
+          if match_data
+              ids["deployment_name"] = match_data["deployment_name"]
               break
-            end
           end
-        end
       end
-      headers["X-Ze-Stream-Name"] = kubernetes["container_name"]
-      if not headers.key?("X-Ze-Source-UUID")
-        headers["X-Ze-Source-UUID"] = kubernetes["host"]
+
+      unless kubernetes["labels"].nil?
+        cfgs = kubernetes["labels"]
       end
-      if not headers.key?("X-Ze-Window-Meta")
-        headers["X-Ze-Window-Meta"] = kubernetes["pod_name"]
+      unless kubernetes["annotations"].nil?
+        tags = kubernetes["annotations"]
       end
     elsif record.key?("message")
-      headers["X-Ze-Source-UUID"] = @etc_hostname
+      host = @etc_hostname
       if record.key?("tailed_path")
-        headers["X-Ze-Stream-Name"] = File.basename(record["tailed_path"], ".*")
+        logbasename = File.basename(record["tailed_path"], ".*")
+      else
+        logbasename = "-"
       end
       unless @ze_tags["ze_tag_branch"].nil? or @ze_tags["ze_tag_branch"].empty?
-        headers["X-Ze-Source-Meta"] = @ze_tags["ze_tag_branch"]
+        cfgs["branch"] = @ze_tags["ze_tag_branch"]
       end
       unless @ze_tags["ze_tag_build"].nil? or @ze_tags["ze_tag_build"].empty?
-        headers["X-Ze-Source-Pool"] = @ze_tags["ze_tag_build"]
-      end
-      unless @ze_tags["ze_tag_tsuite"].nil? or @ze_tags["ze_tag_tsuite"].empty?
-        headers["X-Ze-Window-Meta"] = @ze_tags["ze_tag_tsuite"]
+        cfgs["build"] = @ze_tags["ze_tag_build"]
       end
       unless @ze_tags["ze_tag_node"].nil? or @ze_tags["ze_tag_node"].empty?
-        headers["X-Ze-Source-UUID"] = @ze_tags["ze_tag_node"]
+        host = @ze_tags["ze_tag_node"]
+      end
+      ids["host"] = host
+    end
+
+    id_key = ""
+    keys = ids.keys.sort
+    keys.each do |k|
+      if id_key.empty?
+        id_key = k + "=" + ids[k]
+      else
+        id_key = id_key + "," + k + "=" + ids[k]
       end
     end
 
-    @default_header_values.each do |k, v|
-      if not headers.key?(k)
-        headers[k] = v
-      end
+    has_stream_token = false
+    #if @stream_tokens.key?(id_key) and not id_key.empty?
+    if @stream_tokens.key?(id_key)
+        # Make sure there is no meta data change. If there is change, new stream token
+        # must be requested.
+        cfgs_tags_match = true
+        if (cfgs.length == @stream_tokens[id_key]['cfgs'].length &&
+                tags.length == @stream_tokens[id_key]['tags'].length)
+            @stream_tokens[id_key]['cfgs'].keys.each do |k|
+                old_cfg = @stream_tokens[id_key]['cfgs'][k]
+                if old_cfg != cfgs[k]
+                    log.info("Stream " + id_key + " config has changed: old " + old_cfg + ", new " + cfgs[k])
+                    cfgs_tags_match = false
+                    break
+                end
+            end
+            @stream_tokens[id_key]['tags'].keys.each do |k|
+                old_tag = @stream_tokens[id_key]['tags'][k]
+                if old_tag !=  tags[k]
+                    log.info("Stream " + id_key + " config has changed: old " + old_tag + ", new " + tags[k])
+                    cfgs_tags_match = false
+                    break
+                end
+            end
+        end
+        if cfgs_tags_match
+            has_stream_token = true
+        end
     end
-    headers["X-Ze-Stream-Type"] = "native"
+
+    if has_stream_token
+        stream_token = @stream_tokens[id_key]["token"]
+    else
+        log.info("Request new stream token with key " + id_key)
+        stream_token = get_stream_token(ids, cfgs, tags, logbasename)
+        @stream_tokens[id_key] = {
+                                   "token" => stream_token,
+                                   "cfgs"  => cfgs,
+                                   "tags"  => tags
+                                 }
+    end
+
     # User can use node label on pod to override "host" meta data from kubernetes
-    headers["Authorization"] = "Token " + @auth_token.to_s
-    headers["Content-Type"] = "application/octet-stream"
+    headers["Authorization"] = "Token " + stream_token
+    headers["Content-Type"] = "application/json"
     headers["Transfer-Encoding"] = "chunked"
     headers
   end
 
-  def post_data(data, headers)
-    log.trace("post_data to " + @zapi_url + ": headers: " + headers.to_s)
+  def get_stream_token(ids, cfgs, tags, logbasename)
+    meta_data = {}
+    meta_data['stream'] = "native"
+    meta_data['logbasename'] = logbasename
+    meta_data['ids'] = ids
+    meta_data['cfgs'] = cfgs
+    meta_data['tags'] = tags
+
+    headers = {}
+    headers["Authorization"] = "Token " + @auth_token.to_s
+    headers["Content-Type"] = "application/json"
+    headers["Transfer-Encoding"] = "chunked"
+    resp = post_data(@zapi_token_url, meta_data.to_json, headers)
+    parse_resp = JSON.parse(resp.body)
+    if parse_resp.key?("token")
+      return parse_resp["token"]
+    else
+      raise RuntimeError, "Failed to get stream token from zapi. #{resp.code} - #{resp.body}"
+    end
+  end
+
+  def post_data(url, data, headers)
+    log.trace("post_data to " + url + ": headers: " + headers.to_s)
     myio = StringIO.new(data)
     class <<myio
       undef :size
     end
-    response = @http.post(@zapi_url, myio, headers)
-    unless response.ok?
-      raise RuntimeError, "Failed to send data to HTTP Source. #{response.code} - #{response.body}"
+    resp = @http.post(url, myio, headers)
+    unless resp.ok?
+      raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
     end
+    resp
   end
 
   def process(tag, es)
@@ -203,7 +284,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         messages.push(record["message"].chomp)
       end
     end
-    post_data(messages.join("\n"), headers)
+    post_data(@zapi_post_url, messages.join("\n"), headers)
   end
 
   # This method is called when starting.
