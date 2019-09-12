@@ -165,7 +165,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
 
     has_stream_token = false
-    #if @stream_tokens.key?(id_key) and not id_key.empty?
     if @stream_tokens.key?(id_key)
         # Make sure there is no meta data change. If there is change, new stream token
         # must be requested.
