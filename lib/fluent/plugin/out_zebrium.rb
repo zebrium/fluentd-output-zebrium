@@ -228,6 +228,13 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     headers["Content-Type"] = "application/json"
     headers["Transfer-Encoding"] = "chunked"
     resp = post_data(@zapi_token_url, meta_data.to_json, headers)
+    unless resp.ok?
+      if resp.code == 401
+        raise RuntimeError, "Invalid auth token: #{resp.code} - #{resp.body}"
+      else
+        raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
+      end
+    end
     parse_resp = JSON.parse(resp.body)
     if parse_resp.key?("token")
       return parse_resp["token"]
@@ -243,9 +250,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       undef :size
     end
     resp = @http.post(url, myio, headers)
-    unless resp.ok?
-      raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
-    end
     resp
   end
 
@@ -286,7 +290,20 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         messages.push(record["message"].chomp)
       end
     end
-    post_data(@zapi_post_url, messages.join("\n"), headers)
+    resp = post_data(@zapi_post_url, messages.join("\n"), headers)
+    unless resp.ok?
+      if resp.code == 401
+        # Our stream token becomes invalid for some reason, have to acquire new one.
+        # Usually this only happens in testing when server gets recreated.
+        # There is no harm to clear all stream tokens.
+        log.error("Server says stream token is invalid: #{resp.code} - #{resp.body}")
+        log.error("Delete all stream tokens")
+        @stream_tokens = {}
+        raise RuntimeError, "Delete stream token, and retry"
+      else
+        raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
+      end
+    end
   end
 
   # This method is called when starting.
