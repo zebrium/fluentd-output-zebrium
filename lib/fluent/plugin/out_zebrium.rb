@@ -187,6 +187,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
                     break
                 end
             end
+        else
+            log.info("Stream " + id_key + " number of config or tag has changed")
+            cfgs_tags_match = false
         end
         if cfgs_tags_match
             has_stream_token = true
