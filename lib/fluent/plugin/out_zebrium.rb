@@ -87,7 +87,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
     @http.connect_timeout        = 60
     @zapi_token_url = conf["ze_log_collector_url"] + "/api/v2/token"
-    @zapi_post_url = conf["ze_log_collector_url"] + "/api/v2/post"
+    @zapi_post_url = conf["ze_log_collector_url"] + "/api/v2/tmpost"
     @auth_token = conf["ze_log_collector_token"]
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
     log.info("auth_token=" + @auth_token.to_s)
@@ -285,12 +285,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         headers = get_request_headers(record)
       end
       if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
-        messages.push(record["log"].chomp)
+        line = "ze_tm=" + entry[0].to_s + ",msg=" + record["log"].chomp
+        messages.push(line)
       elsif record.key?("message")
-        messages.push(record["message"].chomp)
+        line = "ze_tm=" + entry[0].to_s + ",msg=" + record["message"].chomp
+        messages.push(line)
       end
     end
-    resp = post_data(@zapi_post_url, messages.join("\n"), headers)
+    resp = post_data(@zapi_post_url, messages.join("\n") + "\n", headers)
     unless resp.ok?
       if resp.code == 401
         # Our stream token becomes invalid for some reason, have to acquire new one.
