@@ -140,7 +140,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       if record.key?("tailed_path")
         logbasename = File.basename(record["tailed_path"], ".*")
       else
-        logbasename = "-"
+        logbasename = "nologbasename"
       end
       unless @ze_tags["ze_tag_branch"].nil? or @ze_tags["ze_tag_branch"].empty?
         cfgs["branch"] = @ze_tags["ze_tag_branch"]
