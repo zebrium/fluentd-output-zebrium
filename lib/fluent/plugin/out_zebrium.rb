@@ -118,7 +118,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
                "host", "container_name", "container_image", "container_image_id"
               ]
       for k in keys do
-          ids[k] = kubernetes[k]
+          if not ids[k].nil?
+            ids[k] = kubernetes[k]
+          end
       end
 
       for pattern in [ @pod_name_to_deployment_name_regexp_long_compiled, @pod_name_to_deployment_name_regexp_short_compiled ] do
@@ -140,7 +142,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       if record.key?("tailed_path")
         logbasename = File.basename(record["tailed_path"], ".*")
       else
-        logbasename = "nologbasename"
+        logbasename = "na"
       end
       unless @ze_tags["ze_tag_branch"].nil? or @ze_tags["ze_tag_branch"].empty?
         cfgs["branch"] = @ze_tags["ze_tag_branch"]
@@ -157,10 +159,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     id_key = ""
     keys = ids.keys.sort
     keys.each do |k|
-      if id_key.empty?
-        id_key = k + "=" + ids[k]
-      else
-        id_key = id_key + "," + k + "=" + ids[k]
+      if not ids[k].nil?
+        if id_key.empty?
+          id_key = k + "=" + ids[k]
+        else
+          id_key = id_key + "," + k + "=" +
+        end
       end
     end
 
@@ -279,16 +283,21 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     headers = {}
     messages = []
     chunk.each do |entry|
-      log.trace("out_zebrium:entry: " + entry.to_s + "\n")
+      log.trace("out_zebrium:entry: " + entry.to_s)
       record = entry[1]
       if headers.empty?
         headers = get_request_headers(record)
       end
+      if entry[0].nil?
+        epoch = Time.now.strftime('%s')
+      else
+        epoch = entry[0].to_int
+      end
       if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
-        line = "ze_tm=" + entry[0].to_s + ",msg=" + record["log"].chomp
+        line = "ze_tm=" + epoch.to_s + ",msg=" + record["log"].chomp
         messages.push(line)
       elsif record.key?("message")
-        line = "ze_tm=" + entry[0].to_s + ",msg=" + record["message"].chomp
+        line = "ze_tm=" + epoch.to_s + ",msg=" + record["message"].chomp
         messages.push(line)
       end
     end
