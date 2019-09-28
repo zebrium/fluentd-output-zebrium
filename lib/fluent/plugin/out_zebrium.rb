@@ -163,7 +163,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         if id_key.empty?
           id_key = k + "=" + ids[k]
         else
-          id_key = id_key + "," + k + "=" +
+          id_key = id_key + "," + k + "=" + ids[k]
         end
       end
     end
