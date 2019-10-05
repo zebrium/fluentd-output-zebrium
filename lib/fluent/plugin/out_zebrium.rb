@@ -118,7 +118,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
                "host", "container_name", "container_image", "container_image_id"
               ]
       for k in keys do
-          if not ids[k].nil?
+          if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
             ids[k] = kubernetes[k]
           end
       end
