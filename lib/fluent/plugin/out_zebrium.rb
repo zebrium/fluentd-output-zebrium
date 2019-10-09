@@ -137,10 +137,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       unless kubernetes["annotations"].nil?
         tags = kubernetes["annotations"]
       end
-    elsif record.key?("message")
+    else
       host = @etc_hostname
       if record.key?("tailed_path")
         logbasename = File.basename(record["tailed_path"], ".*")
+      elsif record.key?("_SYSTEMD_UNIT")
+        logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
       else
         logbasename = "na"
       end
@@ -154,6 +156,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         host = @ze_tags["ze_tag_node"]
       end
       ids["host"] = host
+      ids["app"] = logbasename
     end
 
     id_key = ""
@@ -283,8 +286,19 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     headers = {}
     messages = []
     chunk.each do |entry|
-      log.trace("out_zebrium:entry: " + entry.to_s)
       record = entry[1]
+      msg_key = nil
+      # journald use key "MESSAGE" for log message
+      for k in ["log", "message", "LOG", "MESSAGE" ]
+        if record.key?(k) and not record.fetch(k).nil?
+          msg_key = k
+          break
+        end
+      end
+      if msg_key.nil?
+        continue
+      end
+
       if headers.empty?
         headers = get_request_headers(record)
       end
@@ -293,13 +307,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       else
         epoch = entry[0].to_int
       end
-      if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
-        line = "ze_tm=" + epoch.to_s + ",msg=" + record["log"].chomp
-        messages.push(line)
-      elsif record.key?("message")
-        line = "ze_tm=" + epoch.to_s + ",msg=" + record["message"].chomp
-        messages.push(line)
-      end
+
+      line = "ze_tm=" + epoch.to_s + ",msg=" + record[msg_key].chomp
+      messages.push(line)
     end
     resp = post_data(@zapi_post_url, messages.join("\n") + "\n", headers)
     unless resp.ok?
