@@ -229,6 +229,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     meta_data['ids'] = ids
     meta_data['cfgs'] = cfgs
     meta_data['tags'] = tags
+    meta_data['tz'] = Time.now.zone
 
     headers = {}
     headers["Authorization"] = "Token " + @auth_token.to_s
