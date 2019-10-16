@@ -24,6 +24,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :ze_tag_tsuite, :string, :default => ""
   config_param :ze_tag_node, :string, :default => ""
   config_param :use_buffer, :bool, :default => true
+  config_param :verify_ssl, :bool, :default => false
 
   config_section :format do
     config_set_default :@type, DEFAULT_LINE_FORMAT_TYPE
@@ -84,7 +85,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
                 }
     log.info("label_header_map: " + @label_header_map.to_s)
     @http                        = HTTPClient.new()
-    @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    if @verify_ssl
+      @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_PEER
+    else
+      @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    end
     @http.connect_timeout        = 60
     @zapi_token_url = conf["ze_log_collector_url"] + "/api/v2/token"
     @zapi_post_url = conf["ze_log_collector_url"] + "/api/v2/tmpost"
