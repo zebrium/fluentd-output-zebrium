@@ -114,6 +114,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       if kubernetes.key?("namespace_name") and not kubernetes.fetch("namespace_name").nil?
         namespace = kubernetes.fetch("namespace_name")
         if namespace.casecmp?("orphaned") or namespace.casecmp?(".orphaned")
+          return false, nil
         end
       end
       logbasename = kubernetes["container_name"]
@@ -228,7 +229,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     headers["Authorization"] = "Token " + stream_token
     headers["Content-Type"] = "application/json"
     headers["Transfer-Encoding"] = "chunked"
-    headers
+    return true, headers
   end
 
   def get_stream_token(ids, cfgs, tags, logbasename)
@@ -310,7 +311,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       end
 
       if headers.empty?
-        headers = get_request_headers(record)
+        should_send, headers = get_request_headers(record)
+        if should_send == false
+          return
+        end
       end
       if entry[0].nil?
         epoch = Time.now.strftime('%s')
