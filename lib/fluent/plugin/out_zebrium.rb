@@ -38,18 +38,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
   def initialize
     super
+    @etc_hostname = ""
     if File.file?("/mnt/etc/hostname")
       # Inside fluentd container
       File.open("/mnt/etc/hostname", "r").each do |line|
         @etc_hostname = line.strip().chomp
       end
-    elsif File.file?("/etc/hostname")
-      # Run directly on host
-      File.open("/etc/hostname", "r").each do |line|
-        @etc_hostname = line.strip().chomp
-      end
-    else
-        @etc_hostname = `hostname`.strip().chomp
     end
     # Pod names can have two formats:
     # 1. <deployment_name>-84ff57c87c-pc6xm
@@ -117,6 +111,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
     if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
       kubernetes = record["kubernetes"]
+      if kubernetes.key?("namespace_name") and not kubernetes.fetch("namespace_name").nil?
+        namespace = kubernetes.fetch("namespace_name")
+        if namespace.casecmp?("orphaned") or namespace.casecmp?(".orphaned")
+        end
+      end
       logbasename = kubernetes["container_name"]
       keys = [
                "namespace_name", "namespace_id", "pod_name", "pod_id",
@@ -125,6 +124,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       for k in keys do
           if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
             ids[k] = kubernetes[k]
+            if k == "host" and @etc_hostname.empty?
+               @etc_hostname = kubernetes[k]
+            end
           end
       end
 
@@ -149,7 +151,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       elsif record.key?("_SYSTEMD_UNIT")
         logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
       else
-        logbasename = "na"
+        # Default goes to zlog-collector. Usually there are fluentd generated message
+        # and our own log messages
+        logbasename = "zlog-collector"
       end
       unless @ze_tags["ze_tag_branch"].nil? or @ze_tags["ze_tag_branch"].empty?
         cfgs["branch"] = @ze_tags["ze_tag_branch"]
