@@ -109,6 +109,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         ids["container_id"] = container_id
     end
 
+    is_container_log = true
     if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
       kubernetes = record["kubernetes"]
       if kubernetes.key?("namespace_name") and not kubernetes.fetch("namespace_name").nil?
@@ -146,6 +147,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         tags = kubernetes["annotations"]
       end
     else
+      is_container_log = false
       host = @etc_hostname
       if record.key?("tailed_path")
         logbasename = File.basename(record["tailed_path"], ".*")
@@ -217,7 +219,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         stream_token = @stream_tokens[id_key]["token"]
     else
         log.info("Request new stream token with key " + id_key)
-        stream_token = get_stream_token(ids, cfgs, tags, logbasename)
+        stream_token = get_stream_token(ids, cfgs, tags, logbasename, is_container_log)
         @stream_tokens[id_key] = {
                                    "token" => stream_token,
                                    "cfgs"  => cfgs,
@@ -232,10 +234,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     return true, headers
   end
 
-  def get_stream_token(ids, cfgs, tags, logbasename)
+  def get_stream_token(ids, cfgs, tags, logbasename, is_container_log)
     meta_data = {}
     meta_data['stream'] = "native"
     meta_data['logbasename'] = logbasename
+    meta_data['container_log'] = is_container_log
     meta_data['ids'] = ids
     meta_data['cfgs'] = cfgs
     meta_data['tags'] = tags
