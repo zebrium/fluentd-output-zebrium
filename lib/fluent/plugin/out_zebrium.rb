@@ -320,12 +320,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         end
       end
       if entry[0].nil?
-        epoch = Time.now.strftime('%s')
+        epoch_ms = (Time.now.strftime('%s.%3N').to_f * 1000).to_i
       else
-        epoch = entry[0].to_int
+        epoch_ms = (entry[0].to_f * 1000).to_i
       end
 
-      line = "ze_tm=" + epoch.to_s + ",msg=" + record[msg_key].chomp
+      line = "ze_tm=" + epoch_ms.to_s + ",msg=" + record[msg_key].chomp
       messages.push(line)
     end
     resp = post_data(@zapi_post_url, messages.join("\n") + "\n", headers)
