@@ -39,10 +39,23 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   def initialize
     super
     @etc_hostname = ""
-    if File.file?("/mnt/etc/hostname")
+    if File.exist?("/mnt/etc/hostname")
       # Inside fluentd container
+      # In that case that host /etc/hostname is a directory, we will
+      # get empty string (for example, on GKE hosts). We will
+      # try to get hostname from log record from kubernetes.
       File.open("/mnt/etc/hostname", "r").each do |line|
         @etc_hostname = line.strip().chomp
+      end
+    else
+      if File.exist?("/etc/hostname")
+        # Run directly on host
+        File.open("/etc/hostname", "r").each do |line|
+          @etc_hostname = line.strip().chomp
+        end
+      end
+      if @etc_hostname.empty?
+        @etc_hostname = `hostname`.strip().chomp
       end
     end
     # Pod names can have two formats:
