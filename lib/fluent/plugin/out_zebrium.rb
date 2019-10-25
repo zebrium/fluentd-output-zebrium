@@ -44,8 +44,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       # In that case that host /etc/hostname is a directory, we will
       # get empty string (for example, on GKE hosts). We will
       # try to get hostname from log record from kubernetes.
-      File.open("/mnt/etc/hostname", "r").each do |line|
-        @etc_hostname = line.strip().chomp
+      File.file?("/mnt/etc/hostname")
+        File.open("/mnt/etc/hostname", "r").each do |line|
+          @etc_hostname = line.strip().chomp
+        end
       end
     else
       if File.exist?("/etc/hostname")
