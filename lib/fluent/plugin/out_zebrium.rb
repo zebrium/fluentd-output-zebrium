@@ -15,6 +15,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
   config_param :ze_log_collector_url, :string, :default => ""
   config_param :ze_log_collector_token, :integer, :default => 0
+  config_param :ze_deployment_name, :string, :default => ""
   config_param :ze_label_build, :string, :default => ""
   config_param :ze_label_branch, :string, :default => ""
   config_param :ze_label_node, :string, :default => ""
@@ -103,6 +104,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @zapi_token_url = conf["ze_log_collector_url"] + "/api/v2/token"
     @zapi_post_url = conf["ze_log_collector_url"] + "/api/v2/tmpost"
     @auth_token = conf["ze_log_collector_token"]
+    log.info("ze_deployment_name=" + conf["ze_deployment_name"])
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
     log.info("auth_token=" + @auth_token.to_s)
     log.info("etc_hostname=" + @etc_hostname)
@@ -184,6 +186,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       end
       ids["host"] = host
       ids["app"] = logbasename
+    end
+    unless @ze_deployment_name.empty?
+      ids["ze_deployment_name"] = @ze_deployment_name
     end
 
     id_key = ""
