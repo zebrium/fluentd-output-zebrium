@@ -15,15 +15,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
   config_param :ze_log_collector_url, :string, :default => ""
   config_param :ze_log_collector_token, :integer, :default => 0
+  config_param :ze_host, :string, :default => ""
   config_param :ze_deployment_name, :string, :default => ""
-  config_param :ze_label_build, :string, :default => ""
-  config_param :ze_label_branch, :string, :default => ""
-  config_param :ze_label_node, :string, :default => ""
-  config_param :ze_label_tsuite, :string, :default => ""
-  config_param :ze_tag_build, :string, :default => ""
-  config_param :ze_tag_branch, :string, :default => ""
-  config_param :ze_tag_tsuite, :string, :default => ""
-  config_param :ze_tag_node, :string, :default => ""
+  config_param :ze_host_tags, :string, :default => ""
   config_param :use_buffer, :bool, :default => true
   config_param :verify_ssl, :bool, :default => false
 
@@ -87,13 +81,17 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     compat_parameters_convert(conf, :inject, :formatter)
     super
     @formatter = formatter_create
-    @ze_tags = {
-                 "ze_tag_branch" => conf["ze_tag_branch"],
-                 "ze_tag_build" => conf["ze_tag_build"],
-                 "ze_tag_tsuite" => conf["ze_tag_tsuite"],
-                 "ze_tag_node" => conf["ze_tag_node"]
-                }
-    log.info("label_header_map: " + @label_header_map.to_s)
+    @ze_tags = {}
+    kvs = conf['ze_host_tags'].split(',')
+    for kv in kvs do
+      ary = kv.split('=')
+      if ary.length != 2 or ary[0].empty? or ary[1].empty?
+        log.error("Invalid tag in ze_host_tags: #{kv}")
+        continue
+      end
+      @ze_tags[ary[0]] = ary[1]
+      log.info("add ze_tag[" + ary[0] + "]=" + ary[1])
+    end
     @http                        = HTTPClient.new()
     if @verify_ssl
       @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_PEER
@@ -104,7 +102,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @zapi_token_url = conf["ze_log_collector_url"] + "/api/v2/token"
     @zapi_post_url = conf["ze_log_collector_url"] + "/api/v2/tmpost"
     @auth_token = conf["ze_log_collector_token"]
-    log.info("ze_deployment_name=" + conf["ze_deployment_name"])
+    log.info("ze_deployment_name=" + (conf["ze_deployment_name"].nil? ? "<not set>": conf["ze_deployment_name"]))
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
     log.info("auth_token=" + @auth_token.to_s)
     log.info("etc_hostname=" + @etc_hostname)
@@ -175,20 +173,21 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         # and our own log messages
         logbasename = "zlog-collector"
       end
-      unless @ze_tags["ze_tag_branch"].nil? or @ze_tags["ze_tag_branch"].empty?
-        cfgs["branch"] = @ze_tags["ze_tag_branch"]
-      end
-      unless @ze_tags["ze_tag_build"].nil? or @ze_tags["ze_tag_build"].empty?
-        cfgs["build"] = @ze_tags["ze_tag_build"]
-      end
-      unless @ze_tags["ze_tag_node"].nil? or @ze_tags["ze_tag_node"].empty?
-        host = @ze_tags["ze_tag_node"]
+      unless @ze_tags["ze_host"].nil? or @ze_tags["ze_host"].empty?
+        host = @ze_tags["ze_host"]
       end
       ids["host"] = host
       ids["app"] = logbasename
     end
     unless @ze_deployment_name.empty?
       ids["ze_deployment_name"] = @ze_deployment_name
+    end
+    for k in @ze_tags.keys do
+      if k == "ze_deployment_name"
+        ids["ze_deployment_name"] = @ze_tags["ze_deployment_name"]
+      else
+        tags[k] = @ze_tags[k]
+      end
     end
 
     id_key = ""
