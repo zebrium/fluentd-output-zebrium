@@ -113,7 +113,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 #   @formatter.format(tag, time, record).chomp + "\n"
 # end
 
-  def get_request_headers(record)
+  def get_request_headers(chunk_tag, record)
     headers = {}
     ids = {}
     cfgs = {}
@@ -168,6 +168,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         logbasename = File.basename(record["tailed_path"], ".*")
       elsif record.key?("_SYSTEMD_UNIT")
         logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
+      elsif chunk_tag == "k8s.events.watch"
+        logbasename = "zk8s-events"
       else
         # Default goes to zlog-collector. Usually there are fluentd generated message
         # and our own log messages
@@ -193,7 +195,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     id_key = ""
     keys = ids.keys.sort
     keys.each do |k|
-      if not ids[k].nil?
+      if ids.key?(k)
         if id_key.empty?
           id_key = k + "=" + ids[k]
         else
@@ -293,6 +295,45 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     resp
   end
 
+  def get_k8s_event_str(record)
+    evt_obj = record['object']
+    severity = evt_obj['type']
+    if severity == "Warning"
+      severity = "WARN"
+    end
+    if severity == "Normal"
+      severity = "INFO"
+    end
+    evt_str = "count=" + evt_obj['count'].to_s
+    if record.key?('type')
+      evt_str = evt_str + " type=" + record['type']
+    end
+    if evt_obj.key?('source') and evt_obj['source'].key('host')
+      evt_str = evt_str + " host=" + evt_obj['source']['host']
+    end
+    if evt_obj.key?('metadata')
+      if evt_obj['metadata'].key?('name')
+        evt_str = evt_str + " name=" + evt_obj['metadata']['name']
+      end
+      if evt_obj['metadata'].key('namespace')
+        evt_str = evt_str + " namespace=" + evt_obj['metadata']['namespace']
+      end
+    end
+    if evt_obj.key?('involvedObject')
+        in_obj = evt_obj['involvedObject']
+        for k in ["kind", "namespace", "name", "uid" ] do
+          if in_obj.key?(k)
+            evt_str = evt_str + " " + k + "=" + in_obj[k]
+          end
+        end
+    end
+    if evt_obj.key?('reason')
+      evt_str = evt_str + " reason=" + evt_obj['reason']
+    end
+    msg = evt_obj["lastTimestamp"] + " " + severity + " " + evt_str + " msg=" + evt_obj['message'].chomp
+    return msg
+  end
+
   def process(tag, es)
     es = inject_values_to_event_stream(tag, es)
     es.each {|time,record|
@@ -321,19 +362,21 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     chunk.each do |entry|
       record = entry[1]
       msg_key = nil
-      # journald use key "MESSAGE" for log message
-      for k in ["log", "message", "LOG", "MESSAGE" ]
-        if record.key?(k) and not record.fetch(k).nil?
-          msg_key = k
-          break
+      if tag != "k8s.events.watch"
+        # journald use key "MESSAGE" for log message
+        for k in ["log", "message", "LOG", "MESSAGE" ]
+          if record.key?(k) and not record.fetch(k).nil?
+            msg_key = k
+            break
+          end
         end
-      end
-      if msg_key.nil?
-        continue
+        if msg_key.nil?
+          next
+        end
       end
 
       if headers.empty?
-        should_send, headers = get_request_headers(record)
+        should_send, headers = get_request_headers(tag, record)
         if should_send == false
           return
         end
@@ -342,6 +385,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         epoch_ms = (Time.now.strftime('%s.%3N').to_f * 1000).to_i
       else
         epoch_ms = (entry[0].to_f * 1000).to_i
+      end
+
+      if tag == "k8s.events.watch" and record.key?('object') and record['object']['kind'] == "Event"
+        line = "ze_tm=" + epoch_ms.to_s + ",msg=" + get_k8s_event_str(record)
+      else
+        line = "ze_tm=" + epoch_ms.to_s + ",msg=" + record[msg_key].chomp
       end
 
       line = "ze_tm=" + epoch_ms.to_s + ",msg=" + record[msg_key].chomp
