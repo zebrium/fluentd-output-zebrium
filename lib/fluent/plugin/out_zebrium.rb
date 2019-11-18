@@ -82,7 +82,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     super
     @formatter = formatter_create
     @ze_tags = {}
-    kvs = conf['ze_host_tags'].split(',')
+    kvs = conf.key?('ze_host_tags') ? conf['ze_host_tags'].split(','): []
     for kv in kvs do
       ary = kv.split('=')
       if ary.length != 2 or ary[0].empty? or ary[1].empty?
