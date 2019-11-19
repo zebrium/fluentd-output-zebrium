@@ -392,8 +392,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       else
         line = "ze_tm=" + epoch_ms.to_s + ",msg=" + record[msg_key].chomp
       end
-
-      line = "ze_tm=" + epoch_ms.to_s + ",msg=" + record[msg_key].chomp
       messages.push(line)
     end
     resp = post_data(@zapi_post_url, messages.join("\n") + "\n", headers)
