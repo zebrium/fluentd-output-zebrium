@@ -92,6 +92,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       @ze_tags[ary[0]] = ary[1]
       log.info("add ze_tag[" + ary[0] + "]=" + ary[1])
     end
+
+    ec2_host_meta = get_ec2_host_meta_data()
+    for k in ec2_host_meta.keys do
+      log.info("add ec2 meta data " + k + "=" + ec2_host_meta[k])
+      @ze_tags[k] = ec2_host_meta[k]
+    end
     @http                        = HTTPClient.new()
     if @verify_ssl
       @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_PEER
@@ -112,6 +118,48 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 #   record = inject_values_to_record(tag, time, record)
 #   @formatter.format(tag, time, record).chomp + "\n"
 # end
+
+  def get_ec2_host_meta_data()
+    host_meta = {}
+    token = ""
+    client = HTTPClient.new()
+    client.connect_timeout = 5
+    begin
+      resp = client.put('http://169.254.169.254/latest/api/token', :header => {'X-aws-ec2-metadata-token-ttl-seconds' => '21600'})
+      if resp.ok?
+        token = resp.body
+        log.info("Got ec2 host meta token=")
+      else
+        log.info("Failed to get token")
+      end
+    rescue
+       log.info("Failed to get AWS EC2 host meta data token")
+       return host_meta
+    end
+
+    begin
+      meta_resp = client.get('http://169.254.169.254/latest/meta-data/', :header => {'X-aws-ec2-metadata-token' => token})
+      if meta_resp.ok?
+        meta_data_arr = meta_resp.body.split()
+        for k in ['ami-id', 'instance-id', 'instance-type', 'hostname', 'local-hostname', 'local-ipv4', 'mac', 'placement', 'public-hostname', 'public-ipv4'] do
+          if meta_data_arr.include?(k)
+            data_resp = client.get("http://169.254.169.254/latest/meta-data/" + k, :header => {'X-aws-ec2-metadata-token' => token})
+            if data_resp.ok?
+              log.info("#{k}=#{data_resp.body}")
+              host_meta['ec2-' + k] = data_resp.body
+            else
+              log.error("Failed to get meta data with key #{k}")
+            end
+          end
+        end
+      else
+       log.error("host meta data request failed: #{meta_resp}")
+      end
+    rescue
+       log.error("host meta data post request exception")
+    end
+    return host_meta
+  end
 
   def get_request_headers(chunk_tag, record)
     headers = {}
