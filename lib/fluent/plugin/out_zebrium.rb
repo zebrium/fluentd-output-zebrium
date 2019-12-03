@@ -213,7 +213,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       is_container_log = false
       host = @etc_hostname
       if record.key?("tailed_path")
-        logbasename = File.basename(record["tailed_path"], ".*")
+        fbname = File.basename(record["tailed_path"], ".*")
+        logbasename = fbname.split('.')[0]
       elsif record.key?("_SYSTEMD_UNIT")
         logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
       elsif chunk_tag == "k8s.events.watch"
