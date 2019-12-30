@@ -130,10 +130,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         token = resp.body
         log.info("Got ec2 host meta token=")
       else
-        log.info("Failed to get token")
+        log.info("Failed to get AWS EC2 host meta data API token")
       end
     rescue
-       log.info("Failed to get AWS EC2 host meta data token")
+       log.info("Exception: failed to get AWS EC2 host meta data API token")
        return host_meta
     end
 
@@ -169,7 +169,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
     if record.key?("docker") and not record.fetch("docker").nil?
         container_id = record["docker"]["container_id"]
-        ids["container_id"] = container_id
+        if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
+          cfgs["container_id"] = container_id
+        else
+          ids["container_id"] = container_id
+        end
     end
 
     is_container_log = true
@@ -182,10 +186,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         end
       end
       logbasename = kubernetes["container_name"]
-      keys = [
-               "namespace_name", "namespace_id", "pod_name", "pod_id",
-               "host", "container_name", "container_image", "container_image_id"
-              ]
+      keys = [ "namespace_name", "namespace_id", "pod_name", "host", "container_name" ]
       for k in keys do
           if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
             ids[k] = kubernetes[k]
@@ -203,8 +204,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           end
       end
 
+      keys = [ "pod_id", "container_image", "container_image_id" ]
+      for k in keys do
+          if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
+            cfgs[k] = kubernetes[k]
+          end
+      end
       unless kubernetes["labels"].nil?
-        cfgs = kubernetes["labels"]
+        cfgs.merge!(kubernetes["labels"])
       end
       unless kubernetes["annotations"].nil?
         tags = kubernetes["annotations"]
@@ -215,6 +222,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       if record.key?("tailed_path")
         fbname = File.basename(record["tailed_path"], ".*")
         logbasename = fbname.split('.')[0]
+        if logbasename != fbname
+          ids["ze_logname"] = fbname
+        end
       elsif record.key?("_SYSTEMD_UNIT")
         logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
       elsif chunk_tag == "k8s.events.watch"
