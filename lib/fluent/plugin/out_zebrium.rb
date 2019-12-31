@@ -2,6 +2,7 @@ require 'fluent/plugin/output'
 require 'net/https'
 require 'yajl'
 require 'httpclient'
+require 'uri'
 require 'json'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
@@ -104,9 +105,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     else
       @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
     end
-    @http.connect_timeout        = 60
-    @zapi_token_url = conf["ze_log_collector_url"] + "/api/v2/token"
-    @zapi_post_url = conf["ze_log_collector_url"] + "/api/v2/tmpost"
+    @http.connect_timeout = 60
+    @zapi_uri = URI(conf["ze_log_collector_url"])
+    @zapi_token_uri = @zapi_uri.clone
+    @zapi_token_uri.path = "/api/v2/token"
+    @zapi_post_uri = @zapi_uri.clone
+    @zapi_post_uri.path = "/api/v2/tmpost"
     @auth_token = conf["ze_log_collector_token"]
     log.info("ze_deployment_name=" + (conf["ze_deployment_name"].nil? ? "<not set>": conf["ze_deployment_name"]))
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
@@ -328,7 +332,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     headers["Authorization"] = "Token " + @auth_token.to_s
     headers["Content-Type"] = "application/json"
     headers["Transfer-Encoding"] = "chunked"
-    resp = post_data(@zapi_token_url, meta_data.to_json, headers)
+    resp = post_data(@zapi_token_uri, meta_data.to_json, headers)
     unless resp.ok?
       if resp.code == 401
         raise RuntimeError, "Invalid auth token: #{resp.code} - #{resp.body}"
@@ -344,13 +348,13 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
   end
 
-  def post_data(url, data, headers)
-    log.trace("post_data to " + url + ": headers: " + headers.to_s)
+  def post_data(uri, data, headers)
+    log.trace("post_data to " + uri.to_s + ": headers: " + headers.to_s)
     myio = StringIO.new(data)
     class <<myio
       undef :size
     end
-    resp = @http.post(url, myio, headers)
+    resp = @http.post(uri, myio, headers)
     resp
   end
 
@@ -453,7 +457,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       end
       messages.push(line)
     end
-    resp = post_data(@zapi_post_url, messages.join("\n") + "\n", headers)
+    resp = post_data(@zapi_post_uri, messages.join("\n") + "\n", headers)
     unless resp.ok?
       if resp.code == 401
         # Our stream token becomes invalid for some reason, have to acquire new one.
