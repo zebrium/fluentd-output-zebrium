@@ -99,9 +99,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       log.info("add ec2 meta data " + k + "=" + ec2_host_meta[k])
       @ze_tags[k] = ec2_host_meta[k]
     end
-    @http                        = HTTPClient.new()
+    @http = HTTPClient.new()
     if @verify_ssl
       @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      @http.ssl_config.add_trust_ca "/usr/lib/ssl/certs"
     else
       @http.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
     end
