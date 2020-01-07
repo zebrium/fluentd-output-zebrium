@@ -191,7 +191,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         end
       end
       logbasename = kubernetes["container_name"]
-      keys = [ "namespace_name", "namespace_id", "pod_name", "host", "container_name" ]
+      keys = [ "namespace_name", "host", "container_name" ]
       for k in keys do
           if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
             ids[k] = kubernetes[k]
@@ -209,7 +209,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           end
       end
 
-      keys = [ "pod_id", "container_image", "container_image_id" ]
+      keys = [ "namespace_id", "pod_name", "pod_id", "container_image", "container_image_id" ]
       for k in keys do
           if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
             cfgs[k] = kubernetes[k]
