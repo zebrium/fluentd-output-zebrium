@@ -4,6 +4,7 @@ require 'yajl'
 require 'httpclient'
 require 'uri'
 require 'json'
+require 'docker'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -166,6 +167,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     return host_meta
   end
 
+  def get_container_name(container_id)
+    container = Docker::Container.get(container_id)
+    meta_data = container.json()
+    return meta_data['Name'].sub(/^\//, '')
+  end
+
   def get_request_headers(chunk_tag, record)
     headers = {}
     ids = {}
@@ -182,6 +189,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
 
     is_container_log = true
+    fpath = ""
     if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
       kubernetes = record["kubernetes"]
       if kubernetes.key?("namespace_name") and not kubernetes.fetch("namespace_name").nil?
@@ -221,11 +229,28 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       unless kubernetes["annotations"].nil?
         tags = kubernetes["annotations"]
       end
+      fpath = logbasename
+    elsif chunk_tag =~ /^containers\./
+      if record.key?("tailed_path")
+        fpath = record["tailed_path"]
+        fname = File.basename(fpath)
+        ary = fname.split('-')
+        container_id = ""
+        if ary.length == 2
+          container_id = ary[0]
+          logbasename = get_container_name(container_id)
+          ids["app"] = logbasename
+        else
+          log.error("Wrong container log file: ", fpath)
+        end
+      else
+        log.error("Missing tailed_path on logs with containers.* tag")
+      end
     else
       is_container_log = false
-      host = @etc_hostname
       if record.key?("tailed_path")
-        fbname = File.basename(record["tailed_path"], ".*")
+        fpath = record["tailed_path"]
+        fbname = File.basename(fpath, ".*")
         logbasename = fbname.split('.')[0]
         if logbasename != fbname
           ids["ze_logname"] = fbname
@@ -239,11 +264,15 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         # and our own log messages
         logbasename = "zlog-collector"
       end
-      unless @ze_tags["ze_host"].nil? or @ze_tags["ze_host"].empty?
-        host = @ze_tags["ze_host"]
+      ids["app"] = logbasename
+    end
+    cfgs["ze_file_path"] = fpath
+    if not ids.key?("host") or ids.fetch("host").nil?
+      host = @etc_hostname
+      unless @ze_tags["ze_tag_node"].nil? or @ze_tags["ze_tag_node"].empty?
+        host = @ze_tags["ze_tag_node"]
       end
       ids["host"] = host
-      ids["app"] = logbasename
     end
     unless @ze_deployment_name.empty?
       ids["ze_deployment_name"] = @ze_deployment_name
