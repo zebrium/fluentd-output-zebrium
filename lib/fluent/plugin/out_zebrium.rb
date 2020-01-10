@@ -95,6 +95,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       log.info("add ze_tag[" + ary[0] + "]=" + ary[1])
     end
 
+    @file_mappings = {}
+    read_file_mappings()
+
     ec2_host_meta = get_ec2_host_meta_data()
     for k in ec2_host_meta.keys do
       log.info("add ec2 meta data " + k + "=" + ec2_host_meta[k])
@@ -124,6 +127,24 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 #   record = inject_values_to_record(tag, time, record)
 #   @formatter.format(tag, time, record).chomp + "\n"
 # end
+
+  def read_file_mappings()
+    file_map_cfg_file = "/etc/zebrium/log-file-map.cfg"
+    if not File.exist?(file_map_cfg_file)
+      log.info(file_map_cfg_file + " does not exist")
+      return
+    end
+    log.info(file_map_cfg_file + " exists")
+    file = File.read(file_map_cfg_file)
+    file_mappings = JSON.parse(file)
+
+    file_mappings['mappings'].each { |item|
+      if item.key?('file') and item['file'].length > 0 and item.key?('alias') and item['alias'].length > 0
+        log.info("Adding mapping " + item['file'] + " => " + item['alias'])
+        @file_mappings[item['file']] = item['alias']
+      end
+    }
+  end
 
   def get_ec2_host_meta_data()
     host_meta = {}
@@ -250,10 +271,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       is_container_log = false
       if record.key?("tailed_path")
         fpath = record["tailed_path"]
-        fbname = File.basename(fpath, ".*")
-        logbasename = fbname.split('.')[0]
-        if logbasename != fbname
-          ids["ze_logname"] = fbname
+        if @file_mappings.key?(fpath)
+          logbasename = @file_mappings[fpath]
+        else
+          fbname = File.basename(fpath, ".*")
+          logbasename = fbname.split('.')[0]
+          if logbasename != fbname
+            ids["ze_logname"] = fbname
+          end
         end
       elsif record.key?("_SYSTEMD_UNIT")
         logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
