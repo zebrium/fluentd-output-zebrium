@@ -119,7 +119,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @auth_token = conf["ze_log_collector_token"]
     log.info("ze_deployment_name=" + (conf["ze_deployment_name"].nil? ? "<not set>": conf["ze_deployment_name"]))
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
-    log.info("auth_token=" + @auth_token.to_s)
     log.info("etc_hostname=" + @etc_hostname)
   end
 
