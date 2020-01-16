@@ -131,11 +131,13 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     file_map_cfg_file = "/etc/td-agent/log-file-map.conf"
     if not File.exist?(file_map_cfg_file)
       log.info(file_map_cfg_file + " does not exist")
-      file_map_cfg_file = "/etc/zebrium/log-file-map.cfg"
-      if not File.exist?(file_map_cfg_file)
-        log.info(file_map_cfg_file + " does not exist")
+      old_file_map_cfg_file = "/etc/zebrium/log-file-map.cfg"
+      if not File.exist?(old_file_map_cfg_file)
+        log.info(old_file_map_cfg_file + " does not exist")
         return
       end
+      log.warn(old_file_map_cfg_file + " is obsolete, please move it to " + file_map_cfg_file)
+      file_map_cfg_file = old_file_map_cfg_file
     end
     log.info(file_map_cfg_file + " exists")
     file = File.read(file_map_cfg_file)
