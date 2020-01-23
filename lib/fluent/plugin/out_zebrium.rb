@@ -6,6 +6,8 @@ require 'uri'
 require 'json'
 require 'docker'
 
+$ZLOG_COLLECTOR_VERSION = '1.20.0'
+
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
 
@@ -117,6 +119,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @zapi_post_uri = @zapi_uri.clone
     @zapi_post_uri.path = "/api/v2/tmpost"
     @auth_token = conf["ze_log_collector_token"]
+    log.info("ze_log_collector_vers=" + $ZLOG_COLLECTOR_VERSION)
     log.info("ze_deployment_name=" + (conf["ze_deployment_name"].nil? ? "<not set>": conf["ze_deployment_name"]))
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
     log.info("etc_hostname=" + @etc_hostname)
@@ -387,6 +390,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     meta_data['cfgs'] = cfgs
     meta_data['tags'] = tags
     meta_data['tz'] = Time.now.zone
+    meta_data['ze_log_collector_vers'] = $ZLOG_COLLECTOR_VERSION
 
     headers = {}
     headers["Authorization"] = "Token " + @auth_token.to_s
