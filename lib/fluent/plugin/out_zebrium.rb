@@ -269,6 +269,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           container_id = ary[0]
           logbasename = get_container_name(container_id)
           ids["app"] = logbasename
+          cfgs["container_id"] = container_id
         else
           log.error("Wrong container log file: ", fpath)
         end
