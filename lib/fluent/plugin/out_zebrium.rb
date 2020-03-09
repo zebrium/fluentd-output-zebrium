@@ -483,10 +483,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   def write(chunk)
     tag = chunk.metadata.tag
     messages_list = {}
-    log.trace("out_zebrium: write() called tag=", tag)
+    log.info("out_zebrium: write() called tag=", tag)
 
     headers = {}
     messages = []
+    num_records = 0
     chunk.each do |entry|
       record = entry[1]
       msg_key = nil
@@ -521,6 +522,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         line = "ze_tm=" + epoch_ms.to_s + ",msg=" + record[msg_key].chomp
       end
       messages.push(line)
+      num_records += 1
+    end
+    if num_records == 0
+      log.info("Chunk has no record, no data to post")
+      return
     end
     resp = post_data(@zapi_post_uri, messages.join("\n") + "\n", headers)
     unless resp.ok?
