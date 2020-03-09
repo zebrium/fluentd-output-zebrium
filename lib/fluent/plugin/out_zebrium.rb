@@ -18,7 +18,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   DEFAULT_BUFFER_TYPE = "memory"
 
   config_param :ze_log_collector_url, :string, :default => ""
-  config_param :ze_log_collector_token, :integer, :default => 0
+  config_param :ze_log_collector_token, :string, :default => ""
   config_param :ze_host, :string, :default => ""
   config_param :ze_deployment_name, :string, :default => ""
   config_param :ze_host_tags, :string, :default => ""
@@ -483,7 +483,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   def write(chunk)
     tag = chunk.metadata.tag
     messages_list = {}
-    log.info("out_zebrium: write() called tag=", tag)
+    log.trace("out_zebrium: write() called tag=", tag)
 
     headers = {}
     messages = []
