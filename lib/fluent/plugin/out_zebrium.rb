@@ -6,7 +6,7 @@ require 'uri'
 require 'json'
 require 'docker'
 
-$ZLOG_COLLECTOR_VERSION = '1.26.0'
+$ZLOG_COLLECTOR_VERSION = '1.26.1'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
