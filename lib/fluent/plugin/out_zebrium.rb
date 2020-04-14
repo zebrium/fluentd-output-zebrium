@@ -196,10 +196,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     return host_meta
   end
 
-  def get_container_name(container_id)
+  def get_container_meta_data(container_id)
+    meta_data = {}
     container = Docker::Container.get(container_id)
-    meta_data = container.json()
-    return meta_data['Name'].sub(/^\//, '')
+    json = container.json()
+    meta_data['name'] = json['Name'].sub(/^\//, '')
+    meta_data['image'] = json['Config']['Image']
+    meta_data['labels'] = json['Config']['Labels']
+    return meta_data
   end
 
   def get_request_headers(chunk_tag, record)
@@ -267,9 +271,15 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         container_id = ""
         if ary.length == 2
           container_id = ary[0]
-          logbasename = get_container_name(container_id)
+          cm = get_container_meta_data(container_id)
+          logbasename = cm['name']
           ids["app"] = logbasename
           cfgs["container_id"] = container_id
+          labels = cm['labels']
+          for k in labels.keys do
+            cfgs[k] = labels[k]
+          end
+          cfgs["image"] = cm['image']
         else
           log.error("Wrong container log file: ", fpath)
         end
