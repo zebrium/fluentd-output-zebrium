@@ -24,6 +24,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :ze_host_tags, :string, :default => ""
   config_param :use_buffer, :bool, :default => true
   config_param :verify_ssl, :bool, :default => false
+  config_param :ze_support_data_send_intvl, :integer, :default => 600
 
   config_section :format do
     config_set_default :@type, DEFAULT_LINE_FORMAT_TYPE
@@ -67,6 +68,13 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @pod_name_to_deployment_name_regexp_long_compiled = Regexp.compile('(?<deployment_name>[a-z0-9]([-a-z0-9]*))-[a-f0-9]{9,10}-[a-z0-9]{5}')
     @pod_name_to_deployment_name_regexp_short_compiled = Regexp.compile('(?<deployment_name>[a-z0-9]([-a-z0-9]*))-[a-z0-9]{5}')
     @stream_tokens = {}
+    @stream_token_req_sent = 0
+    @stream_token_req_success = 0
+    @data_post_sent = 0
+    @data_post_success = 0
+    @support_post_sent = 0
+    @support_post_success = 0
+    @last_support_data_sent = 0
   end
 
   def multi_workers_ready?
@@ -118,11 +126,16 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @zapi_token_uri.path = "/api/v2/token"
     @zapi_post_uri = @zapi_uri.clone
     @zapi_post_uri.path = "/api/v2/tmpost"
+    @zapi_support_uri = @zapi_uri.clone
+    @zapi_support_uri.path = "/api/v2/support"
     @auth_token = conf["ze_log_collector_token"]
     log.info("ze_log_collector_vers=" + $ZLOG_COLLECTOR_VERSION)
     log.info("ze_deployment_name=" + (conf["ze_deployment_name"].nil? ? "<not set>": conf["ze_deployment_name"]))
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
     log.info("etc_hostname=" + @etc_hostname)
+    data = {}
+    data['msg'] = "log collector starting"
+    send_support_data(data)
   end
 
 # def format(tag, time, record)
@@ -407,13 +420,16 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     headers["Authorization"] = "Token " + @auth_token.to_s
     headers["Content-Type"] = "application/json"
     headers["Transfer-Encoding"] = "chunked"
+    @stream_token_req_sent = @stream_token_req_sent + 1
     resp = post_data(@zapi_token_uri, meta_data.to_json, headers)
-    unless resp.ok?
+    if resp.ok? == false
       if resp.code == 401
         raise RuntimeError, "Invalid auth token: #{resp.code} - #{resp.body}"
       else
         raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
       end
+    else
+      @stream_token_req_success = @stream_token_req_success + 1
     end
     parse_resp = JSON.parse(resp.body)
     if parse_resp.key?("token")
@@ -490,7 +506,24 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     }
   end
 
+  def prepare_support_data()
+    data = {}
+    data['stream_token_req_sent'] = @stream_token_req_sent
+    data['stream_token_req_success'] = @stream_token_req_success
+    data['data_post_sent'] = @data_post_sent
+    data['data_post_success'] = @data_post_success
+    data['support_post_sent'] = @support_post_sent
+    data['support_post_success'] = @support_post_success
+    return data
+  end
+
   def write(chunk)
+    epoch = Time.now.to_i
+    if epoch - @last_support_data_sent > @ze_support_data_send_intvl
+      data = prepare_support_data()
+      send_support_data(data)
+      @last_support_data_sent = epoch
+    end
     tag = chunk.metadata.tag
     messages_list = {}
     log.trace("out_zebrium: write() called tag=", tag)
@@ -538,8 +571,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       log.info("Chunk has no record, no data to post")
       return
     end
+    @data_post_sent = @data_post_sent + 1
     resp = post_data(@zapi_post_uri, messages.join("\n") + "\n", headers)
-    unless resp.ok?
+    if resp.ok? == false
+      @data_post_failure_count = @data_post_failure_count + 1
       if resp.code == 401
         # Our stream token becomes invalid for some reason, have to acquire new one.
         # Usually this only happens in testing when server gets recreated.
@@ -551,6 +586,28 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       else
         raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
       end
+    else
+      @data_post_success = @data_post_success + 1
+    end
+  end
+
+  def send_support_data(data)
+    meta_data = {}
+    meta_data['auth_token'] = @auth_token.to_s
+    meta_data['collector_vers'] = $ZLOG_COLLECTOR_VERSION
+    meta_data['host'] = @etc_hostname
+    meta_data['data'] = data
+
+    headers = {}
+    headers["Authorization"] = "Token " + @auth_token.to_s
+    headers["Content-Type"] = "application/json"
+    headers["Transfer-Encoding"] = "chunked"
+    @support_post_sent = @support_post_sent + 1
+    resp = post_data(@zapi_support_uri, meta_data.to_json, headers)
+    if resp.ok? == false
+      log.error("Failed to send data to HTTP Source. #{resp.code} - #{resp.body}")
+    else
+      @support_post_success = @support_post_success + 1
     end
   end
 
