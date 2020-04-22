@@ -39,6 +39,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   def initialize
     super
     @etc_hostname = ""
+    @k8s_hostname = ""
     if File.exist?("/mnt/etc/hostname")
       # Inside fluentd container
       # In that case that host /etc/hostname is a directory, we will
@@ -250,8 +251,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       for k in keys do
           if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
             ids[k] = kubernetes[k]
-            if k == "host" and @etc_hostname.empty?
-               @etc_hostname = kubernetes[k]
+            if k == "host" and @k8s_hostname.empty?
+               @k8s_hostname = kubernetes[k]
             end
           end
       end
@@ -327,7 +328,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
     cfgs["ze_file_path"] = fpath
     if not ids.key?("host") or ids.fetch("host").nil?
-      host = @etc_hostname
+      host = @k8s_hostname.empty? ? @etc_hostname : @k8s_hostname
       unless @ze_tags["ze_tag_node"].nil? or @ze_tags["ze_tag_node"].empty?
         host = @ze_tags["ze_tag_node"]
       end
