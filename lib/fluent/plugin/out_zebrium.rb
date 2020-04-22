@@ -162,6 +162,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
     file_mappings['mappings'].each { |item|
       if item.key?('file') and item['file'].length > 0 and item.key?('alias') and item['alias'].length > 0
+        if item['file'].index(',')
+          log.warn(item['file'] + " in " + file_map_cfg_file + " has comma, alias mapping must be one-to-one mapping ")
+          next
+        end
+        if item['file'].index('*')
+          log.warn(item['file'] + " in " + file_map_cfg_file + " has *, alias mapping must be one-to-one mapping ")
+          next
+        end
         log.info("Adding mapping " + item['file'] + " => " + item['alias'])
         @file_mappings[item['file']] = item['alias']
       end
