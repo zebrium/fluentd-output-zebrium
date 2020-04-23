@@ -246,7 +246,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     is_container_log = true
     user_mapping = false
     fpath = ""
-    if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
+    if chunk_tag =~ /^sysloghost\./
+      logbasename = "syslog"
+      ids["app"] = logbasename
+      ids["host"] = record["host"]
+      is_container_log = false
+    elsif record.key?("kubernetes") and not record.fetch("kubernetes").nil?
       kubernetes = record["kubernetes"]
       if kubernetes.key?("namespace_name") and not kubernetes.fetch("namespace_name").nil?
         namespace = kubernetes.fetch("namespace_name")
@@ -313,11 +318,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       is_container_log = false
       if record.key?("tailed_path")
         fpath = record["tailed_path"]
+        fbname = File.basename(fpath, ".*")
         if @file_mappings.key?(fpath)
           logbasename = @file_mappings[fpath]
           user_mapping = true
+          ids["ze_logname"] = fbname
         else
-          fbname = File.basename(fpath, ".*")
           logbasename = fbname.split('.')[0]
           if logbasename != fbname
             ids["ze_logname"] = fbname
