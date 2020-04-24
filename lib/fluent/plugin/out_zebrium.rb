@@ -25,6 +25,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :use_buffer, :bool, :default => true
   config_param :verify_ssl, :bool, :default => false
   config_param :ze_support_data_send_intvl, :integer, :default => 600
+  config_param :log_forwarder_mode, :bool, :default => false
 
   config_section :format do
     config_set_default :@type, DEFAULT_LINE_FORMAT_TYPE
@@ -109,10 +110,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @file_mappings = {}
     read_file_mappings()
 
-    ec2_host_meta = get_ec2_host_meta_data()
-    for k in ec2_host_meta.keys do
-      log.info("add ec2 meta data " + k + "=" + ec2_host_meta[k])
-      @ze_tags[k] = ec2_host_meta[k]
+    if @log_forwarder_mode
+      log.info("out_zebrium running in log forwarder mode")
+    else
+      ec2_host_meta = get_ec2_host_meta_data()
+      for k in ec2_host_meta.keys do
+        log.info("add ec2 meta data " + k + "=" + ec2_host_meta[k])
+        @ze_tags[k] = ec2_host_meta[k]
+      end
     end
     @http = HTTPClient.new()
     if @verify_ssl
@@ -244,9 +249,13 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
 
     is_container_log = true
+    log_type = ""
+    forwarded_log = false
     user_mapping = false
     fpath = ""
     if chunk_tag =~ /^sysloghost\./
+      log_type = "syslog"
+      forwarded_log = true
       logbasename = "syslog"
       ids["app"] = logbasename
       ids["host"] = record["host"]
@@ -407,7 +416,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         stream_token = @stream_tokens[id_key]["token"]
     else
         log.info("Request new stream token with key " + id_key)
-        stream_token = get_stream_token(ids, cfgs, tags, logbasename, is_container_log, user_mapping)
+        stream_token = get_stream_token(ids, cfgs, tags, logbasename, is_container_log, user_mapping,
+                                        log_type, forwarded_log)
         @stream_tokens[id_key] = {
                                    "token" => stream_token,
                                    "cfgs"  => cfgs,
@@ -422,12 +432,15 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     return true, headers
   end
 
-  def get_stream_token(ids, cfgs, tags, logbasename, is_container_log, user_mapping)
+  def get_stream_token(ids, cfgs, tags, logbasename, is_container_log, user_mapping,
+                       log_type, forwarded_log)
     meta_data = {}
     meta_data['stream'] = "native"
     meta_data['logbasename'] = logbasename
     meta_data['user_logbasename'] = user_mapping
     meta_data['container_log'] = is_container_log
+    meta_data['log_type'] = log_type
+    meta_data['forwarded_log'] = forwarded_log
     meta_data['ids'] = ids
     meta_data['cfgs'] = cfgs
     meta_data['tags'] = tags
@@ -563,6 +576,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         if msg_key.nil?
           next
         end
+      end
+
+      if tag == "fluent.info"
+        next
       end
 
       if headers.empty?
