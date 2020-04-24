@@ -108,11 +108,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
 
     @file_mappings = {}
-    read_file_mappings()
-
     if @log_forwarder_mode
       log.info("out_zebrium running in log forwarder mode")
     else
+      read_file_mappings()
       ec2_host_meta = get_ec2_host_meta_data()
       for k in ec2_host_meta.keys do
         log.info("add ec2 meta data " + k + "=" + ec2_host_meta[k])
@@ -578,7 +577,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         end
       end
 
-      if tag == "fluent.info"
+      # fluent.{info,warn,etc} are from fluentd
+      if /^fluent\..*/.match(tag)
         next
       end
 
