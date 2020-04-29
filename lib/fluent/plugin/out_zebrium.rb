@@ -341,6 +341,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
       elsif chunk_tag == "k8s.events.watch"
         logbasename = "zk8s-events"
+      elsif chunk_tag =~ /^ztcp\.events\./
+        ids["host"] = record["host"] ? record["host"] : "ztcp_host"
+        logbasename = record["logbasename"] ? record["logbasename"] : "ztcp_stream"
       else
         # Default goes to zlog-collector. Usually there are fluentd generated message
         # and our own log messages
