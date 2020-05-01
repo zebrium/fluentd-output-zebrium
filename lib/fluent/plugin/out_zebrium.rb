@@ -20,6 +20,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :ze_log_collector_url, :string, :default => ""
   config_param :ze_log_collector_token, :string, :default => ""
   config_param :ze_host, :string, :default => ""
+  config_param :ze_timezone, :string, :default => ""
   config_param :ze_deployment_name, :string, :default => ""
   config_param :ze_host_tags, :string, :default => ""
   config_param :use_buffer, :bool, :default => true
@@ -446,7 +447,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     meta_data['ids'] = ids
     meta_data['cfgs'] = cfgs
     meta_data['tags'] = tags
-    meta_data['tz'] = Time.now.zone
+    meta_data['tz'] = @ze_timezone.empty? ? Time.now.zone : @ze_timezone
     meta_data['ze_log_collector_vers'] = $ZLOG_COLLECTOR_VERSION
 
     headers = {}
