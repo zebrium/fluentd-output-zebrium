@@ -581,11 +581,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         end
       end
 
-      # fluent.{info,warn,etc} are from fluentd
-      if /^fluent\..*/.match(tag)
-        next
-      end
-
       if headers.empty?
         should_send, headers = get_request_headers(tag, record)
         if should_send == false
