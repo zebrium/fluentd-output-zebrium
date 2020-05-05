@@ -608,7 +608,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @data_post_sent = @data_post_sent + 1
     resp = post_data(@zapi_post_uri, messages.join("\n") + "\n", headers)
     if resp.ok? == false
-      @data_post_failure_count = @data_post_failure_count + 1
       if resp.code == 401
         # Our stream token becomes invalid for some reason, have to acquire new one.
         # Usually this only happens in testing when server gets recreated.
