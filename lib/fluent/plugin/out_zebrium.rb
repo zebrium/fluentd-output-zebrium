@@ -602,7 +602,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       num_records += 1
     end
     if num_records == 0
-      log.info("Chunk has no record, no data to post")
+      log.trace("Chunk has no record, no data to post")
       return
     end
     @data_post_sent = @data_post_sent + 1
