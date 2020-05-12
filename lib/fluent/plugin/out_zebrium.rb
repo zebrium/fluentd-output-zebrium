@@ -6,7 +6,7 @@ require 'uri'
 require 'json'
 require 'docker'
 
-$ZLOG_COLLECTOR_VERSION = '1.28.0'
+$ZLOG_COLLECTOR_VERSION = '1.28.1'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -345,6 +345,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       elsif chunk_tag =~ /^ztcp\.events\./
         ids["host"] = record["host"] ? record["host"] : "ztcp_host"
         logbasename = record["logbasename"] ? record["logbasename"] : "ztcp_stream"
+        forwarded_log = true
+        log_type = "tcp_forward"
       else
         # Default goes to zlog-collector. Usually there are fluentd generated message
         # and our own log messages
