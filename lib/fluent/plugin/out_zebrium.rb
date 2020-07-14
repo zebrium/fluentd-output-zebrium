@@ -347,6 +347,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         logbasename = record["logbasename"] ? record["logbasename"] : "ztcp_stream"
         forwarded_log = true
         log_type = "tcp_forward"
+      elsif chunk_tag =~ /^zhttp\.events\./
+        ids["host"] = record["host"] ? record["host"] : "ztttp_host"
+        logbasename = record["logbasename"] ? record["logbasename"] : "zhttp_stream"
+        forwarded_log = true
+        log_type = "http_forward"
       else
         # Default goes to zlog-collector. Usually there are fluentd generated message
         # and our own log messages
