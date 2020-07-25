@@ -6,7 +6,7 @@ require 'uri'
 require 'json'
 require 'docker'
 
-$ZLOG_COLLECTOR_VERSION = '1.36.0'
+$ZLOG_COLLECTOR_VERSION = '1.37.0'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -104,8 +104,13 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         log.error("Invalid tag in ze_host_tags: #{kv}")
         continue
       end
-      @ze_tags[ary[0]] = ary[1]
       log.info("add ze_tag[" + ary[0] + "]=" + ary[1])
+      if ary[0] == "ze_deployment_name" and @ze_deployment_name.empty?
+        log.info("Use ze_deployment_name from ze_tags")
+        @ze_deployment_name = ary[1]
+      else
+        @ze_tags[ary[0]] = ary[1]
+      end
     end
 
     @file_mappings = {}
@@ -129,9 +134,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @http.connect_timeout = 60
     @zapi_uri = URI(conf["ze_log_collector_url"])
     @zapi_token_uri = @zapi_uri.clone
-    @zapi_token_uri.path = "/api/v2/token"
+    @zapi_token_uri.path = @zapi_token_uri.path + "/log/api/v2/token"
     @zapi_post_uri = @zapi_uri.clone
-    @zapi_post_uri.path = "/api/v2/tmpost"
+    @zapi_post_uri.path = @zapi_post_uri.path + "/log/api/v2/tmpost"
+    @zapi_ingest_uri = @zapi_uri.clone
+    @zapi_ingest_uri.path = @zapi_ingest_uri.path + "/log/api/v2/ingest"
     @zapi_support_uri = @zapi_uri.clone
     @zapi_support_uri.path = "/api/v2/support"
     @auth_token = conf["ze_log_collector_token"]
@@ -223,14 +230,27 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     return host_meta
   end
 
+  def get_host()
+      host = @k8s_hostname.empty? ? @etc_hostname : @k8s_hostname
+      unless @ze_tags["ze_tag_node"].nil? or @ze_tags["ze_tag_node"].empty?
+        host = @ze_tags["ze_tag_node"]
+      end
+      return host
+  end
+
   def get_container_meta_data(container_id)
     meta_data = {}
-    container = Docker::Container.get(container_id)
-    json = container.json()
-    meta_data['name'] = json['Name'].sub(/^\//, '')
-    meta_data['image'] = json['Config']['Image']
-    meta_data['labels'] = json['Config']['Labels']
-    return meta_data
+    begin
+      container = Docker::Container.get(container_id)
+      json = container.json()
+      meta_data['name'] = json['Name'].sub(/^\//, '')
+      meta_data['image'] = json['Config']['Image']
+      meta_data['labels'] = json['Config']['Labels']
+      return meta_data
+    rescue
+      log.info("Exception: failed to get container (#{container_id} meta data")
+      return nil
+    end
   end
 
   def get_request_headers(chunk_tag, record)
@@ -253,6 +273,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     forwarded_log = false
     user_mapping = false
     fpath = ""
+
+    has_container_keys = false
+    if record.key?("container_id") and record.key?("container_name")
+      has_container_keys = true
+    end
     if chunk_tag =~ /^sysloghost\./
       log_type = "syslog"
       forwarded_log = true
@@ -309,6 +334,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         if ary.length == 2
           container_id = ary[0]
           cm = get_container_meta_data(container_id)
+          if cm.nil?
+            return false, headers
+          end
           logbasename = cm['name']
           ids["app"] = logbasename
           cfgs["container_id"] = container_id
@@ -323,6 +351,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       else
         log.error("Missing tailed_path on logs with containers.* tag")
       end
+    elsif has_container_keys
+      logbasename = record['container_name']
+      ids["app"] = logbasename
+      cfgs["container_id"] = record['container_id']
     else
       is_container_log = false
       if record.key?("tailed_path")
@@ -355,28 +387,22 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       else
         # Default goes to zlog-collector. Usually there are fluentd generated message
         # and our own log messages
-        logbasename = "zlog-collector"
+        # for these generic messages, we will send as json messages
+        return true, {}
       end
       ids["app"] = logbasename
     end
     cfgs["ze_file_path"] = fpath
     if not ids.key?("host") or ids.fetch("host").nil?
-      host = @k8s_hostname.empty? ? @etc_hostname : @k8s_hostname
-      unless @ze_tags["ze_tag_node"].nil? or @ze_tags["ze_tag_node"].empty?
-        host = @ze_tags["ze_tag_node"]
-      end
-      ids["host"] = host
+      ids["host"] = get_host()
     end
     unless @ze_deployment_name.empty?
       ids["ze_deployment_name"] = @ze_deployment_name
     end
     for k in @ze_tags.keys do
-      if k == "ze_deployment_name"
-        ids["ze_deployment_name"] = @ze_tags["ze_deployment_name"]
-      else
-        tags[k] = @ze_tags[k]
-      end
+      tags[k] = @ze_tags[k]
     end
+    tags["fluentd_tag"] = chunk_tag
 
     id_key = ""
     keys = ids.keys.sort
@@ -436,7 +462,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
 
     # User can use node label on pod to override "host" meta data from kubernetes
-    headers["Authorization"] = "Token " + stream_token
+    headers["authtoken"] = stream_token
     headers["Content-Type"] = "application/json"
     headers["Transfer-Encoding"] = "chunked"
     return true, headers
@@ -458,7 +484,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     meta_data['ze_log_collector_vers'] = $ZLOG_COLLECTOR_VERSION
 
     headers = {}
-    headers["Authorization"] = "Token " + @auth_token.to_s
+    headers["authtoken"] = @auth_token.to_s
     headers["Content-Type"] = "application/json"
     headers["Transfer-Encoding"] = "chunked"
     @stream_token_req_sent = @stream_token_req_sent + 1
@@ -572,40 +598,65 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     headers = {}
     messages = []
     num_records = 0
+    send_json = false
+    host = ''
+    meta_data = {}
     chunk.each do |entry|
       record = entry[1]
-      msg_key = nil
-      if tag != "k8s.events.watch"
-        # journald use key "MESSAGE" for log message
-        for k in ["log", "message", "LOG", "MESSAGE" ]
-          if record.key?(k) and not record.fetch(k).nil?
-            msg_key = k
-            break
-          end
-        end
-        if msg_key.nil?
-          next
-        end
-      end
-
       if headers.empty?
         should_send, headers = get_request_headers(tag, record)
         if should_send == false
           return
         end
+        # get_request_headers() returns empty header, it means
+        # we should send json message to server
+        if headers.empty?
+          send_json = true
+          if host.empty?
+            host = get_host()
+            meta_data['collector'] = $ZLOG_COLLECTOR_VERSION
+            meta_data['host'] = host
+            meta_data['ze_deployment_name'] = @ze_deployment_name
+            meta_data['tags'] = @ze_tags
+          end
+        end
       end
+
       if entry[0].nil?
         epoch_ms = (Time.now.strftime('%s.%3N').to_f * 1000).to_i
       else
         epoch_ms = (entry[0].to_f * 1000).to_i
       end
 
-      if tag == "k8s.events.watch" and record.key?('object') and record['object']['kind'] == "Event"
-        line = "ze_tm=" + epoch_ms.to_s + ",msg=" + get_k8s_event_str(record)
+      if send_json
+        m = {}
+        m['meta'] = meta_data
+        m['line'] = record
+        m['line']['timestamp'] = epoch_ms
+        m['line']['fluentd_tag'] = tag
+        messages.push(m.to_json)
       else
-        line = "ze_tm=" + epoch_ms.to_s + ",msg=" + record[msg_key].chomp
+        msg_key = nil
+        if tag != "k8s.events.watch"
+          # journald use key "MESSAGE" for log message
+          for k in ["log", "message", "LOG", "MESSAGE" ]
+            if record.key?(k) and not record.fetch(k).nil?
+              msg_key = k
+              break
+            end
+          end
+          if msg_key.nil?
+            next
+          end
+        end
+
+        if tag == "k8s.events.watch" and record.key?('object') and record['object']['kind'] == "Event"
+          line = "ze_tm=" + epoch_ms.to_s + ",msg=" + get_k8s_event_str(record)
+        else
+          line = "ze_tm=" + epoch_ms.to_s + ",msg=" + record[msg_key].chomp
+        end
+        messages.push(line)
       end
-      messages.push(line)
       num_records += 1
     end
     if num_records == 0
@@ -613,27 +664,41 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       return
     end
     @data_post_sent = @data_post_sent + 1
-    resp = post_data(@zapi_post_uri, messages.join("\n") + "\n", headers)
-    if resp.ok? == false
-      if resp.code == 401
-        # Our stream token becomes invalid for some reason, have to acquire new one.
-        # Usually this only happens in testing when server gets recreated.
-        # There is no harm to clear all stream tokens.
-        log.error("Server says stream token is invalid: #{resp.code} - #{resp.body}")
-        log.error("Delete all stream tokens")
-        @stream_tokens = {}
-        raise RuntimeError, "Delete stream token, and retry"
+    if send_json
+      req = {}
+      req['log_type'] = 'generic'
+      req['messages'] = messages
+      headers = {}
+      headers["authtoken"] = @auth_token
+      headers["Content-Type"] = "application/json"
+      resp = post_data(@zapi_ingest_uri, req.to_json, headers)
+      if resp.ok? == false
+        log.error("Server ingest API return error: code #{resp.code} - #{resp.body}")
       else
-        raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
+        @data_post_success = @data_post_success + 1
       end
     else
-      @data_post_success = @data_post_success + 1
+      resp = post_data(@zapi_post_uri, messages.join("\n") + "\n", headers)
+      if resp.ok? == false
+        if resp.code == 401
+          # Our stream token becomes invalid for some reason, have to acquire new one.
+          # Usually this only happens in testing when server gets recreated.
+          # There is no harm to clear all stream tokens.
+          log.error("Server says stream token is invalid: #{resp.code} - #{resp.body}")
+          log.error("Delete all stream tokens")
+          @stream_tokens = {}
+          raise RuntimeError, "Delete stream token, and retry"
+        else
+          raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
+        end
+      else
+        @data_post_success = @data_post_success + 1
+      end
     end
   end
 
   def send_support_data(data)
     meta_data = {}
-    meta_data['auth_token'] = @auth_token.to_s
     meta_data['collector_vers'] = $ZLOG_COLLECTOR_VERSION
     meta_data['host'] = @etc_hostname
     meta_data['data'] = data
