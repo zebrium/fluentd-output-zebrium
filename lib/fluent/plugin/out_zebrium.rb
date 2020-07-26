@@ -617,7 +617,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
             meta_data['collector'] = $ZLOG_COLLECTOR_VERSION
             meta_data['host'] = host
             meta_data['ze_deployment_name'] = @ze_deployment_name
-            meta_data['tags'] = @ze_tags
+            meta_data['tags'] = @ze_tags.dup
+            meta_data['tags']['fluentd_tag'] = tag
           end
         end
       end
@@ -633,7 +634,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         m['meta'] = meta_data
         m['line'] = record
         m['line']['timestamp'] = epoch_ms
-        m['line']['fluentd_tag'] = tag
         messages.push(m.to_json)
       else
         msg_key = nil
