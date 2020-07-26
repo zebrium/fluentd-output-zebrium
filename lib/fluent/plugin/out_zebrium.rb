@@ -352,7 +352,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         log.error("Missing tailed_path on logs with containers.* tag")
       end
     elsif has_container_keys
-      logbasename = record['container_name']
+      logbasename = record['container_name'].sub(/^\//, '')
       ids["app"] = logbasename
       cfgs["container_id"] = record['container_id']
     else
