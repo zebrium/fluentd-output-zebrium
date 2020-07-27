@@ -634,7 +634,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         m['meta'] = meta_data
         m['line'] = record
         m['line']['timestamp'] = epoch_ms
-        messages.push(m.to_json)
+        begin
+          json_str = m.to_json
+        rescue Encoding::UndefinedConversionError
+          json_str = m.to_s.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
+        end
+        messages.push(json_str)
       else
         msg_key = nil
         if tag != "k8s.events.watch"
