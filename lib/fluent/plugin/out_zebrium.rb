@@ -6,7 +6,7 @@ require 'uri'
 require 'json'
 require 'docker'
 
-$ZLOG_COLLECTOR_VERSION = '1.37.1'
+$ZLOG_COLLECTOR_VERSION = '1.37.2'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -27,6 +27,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :verify_ssl, :bool, :default => false
   config_param :ze_support_data_send_intvl, :integer, :default => 600
   config_param :log_forwarder_mode, :bool, :default => false
+  config_param :ec2_api_client_timeout_secs, :integer, :default => 1
+  config_param :disable_ec2_meta_data, :bool, :default => false
 
   config_section :format do
     config_set_default :@type, DEFAULT_LINE_FORMAT_TYPE
@@ -118,10 +120,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       log.info("out_zebrium running in log forwarder mode")
     else
       read_file_mappings()
-      ec2_host_meta = get_ec2_host_meta_data()
-      for k in ec2_host_meta.keys do
-        log.info("add ec2 meta data " + k + "=" + ec2_host_meta[k])
-        @ze_tags[k] = ec2_host_meta[k]
+      if @disable_ec2_meta_data == false
+        ec2_host_meta = get_ec2_host_meta_data()
+        for k in ec2_host_meta.keys do
+          log.info("add ec2 meta data " + k + "=" + ec2_host_meta[k])
+          @ze_tags[k] = ec2_host_meta[k]
+        end
+      else
+        log.info("EC2 meta data collection is disabled")
       end
     end
     @http = HTTPClient.new()
@@ -192,7 +198,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     host_meta = {}
     token = ""
     client = HTTPClient.new()
-    client.connect_timeout = 5
+    client.connect_timeout = @ec2_api_client_timeout_secs
     begin
       resp = client.put('http://169.254.169.254/latest/api/token', :header => {'X-aws-ec2-metadata-token-ttl-seconds' => '21600'})
       if resp.ok?
