@@ -200,6 +200,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     client = HTTPClient.new()
     client.connect_timeout = @ec2_api_client_timeout_secs
     begin
+      log.info("Getting ec2 api token")
       resp = client.put('http://169.254.169.254/latest/api/token', :header => {'X-aws-ec2-metadata-token-ttl-seconds' => '21600'})
       if resp.ok?
         token = resp.body
@@ -213,7 +214,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
 
     begin
+      log.info("Calling ec2 instance meta data API")
       meta_resp = client.get('http://169.254.169.254/latest/meta-data/', :header => {'X-aws-ec2-metadata-token' => token})
+      log.info("Returned from c2 instance meta call")
       if meta_resp.ok?
         meta_data_arr = meta_resp.body.split()
         for k in ['ami-id', 'instance-id', 'instance-type', 'hostname', 'local-hostname', 'local-ipv4', 'mac', 'placement', 'public-hostname', 'public-ipv4'] do
