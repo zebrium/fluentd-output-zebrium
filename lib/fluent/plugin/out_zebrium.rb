@@ -28,7 +28,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :ze_support_data_send_intvl, :integer, :default => 600
   config_param :log_forwarder_mode, :bool, :default => false
   config_param :ec2_api_client_timeout_secs, :integer, :default => 1
-  config_param :disable_ec2_meta_data, :bool, :default => false
+  config_param :disable_ec2_meta_data, :bool, :default => true
 
   config_section :format do
     config_set_default :@type, DEFAULT_LINE_FORMAT_TYPE
