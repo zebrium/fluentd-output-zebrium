@@ -381,7 +381,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         end
       elsif record.key?("_SYSTEMD_UNIT")
         logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
-      elsif chunk_tag == "k8s.events.watch"
+      elsif chunk_tag =~ /^k8s\.events/
         logbasename = "zk8s-events"
       elsif chunk_tag =~ /^ztcp\.events\./
         ids["host"] = record["host"] ? record["host"] : "ztcp_host"
