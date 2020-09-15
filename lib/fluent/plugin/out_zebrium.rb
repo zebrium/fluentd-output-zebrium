@@ -651,7 +651,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         messages.push(json_str)
       else
         msg_key = nil
-        if tag != "k8s.events.watch"
+        if not tag =~ /^k8s\.events/
           # journald use key "MESSAGE" for log message
           for k in ["log", "message", "LOG", "MESSAGE" ]
             if record.key?(k) and not record.fetch(k).nil?
@@ -664,7 +664,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           end
         end
 
-        if tag == "k8s.events.watch" and record.key?('object') and record['object']['kind'] == "Event"
+        if tag =~ /^k8s\.events/ and record.key?('object') and record['object']['kind'] == "Event"
           line = "ze_tm=" + epoch_ms.to_s + ",msg=" + get_k8s_event_str(record)
         else
           line = "ze_tm=" + epoch_ms.to_s + ",msg=" + record[msg_key].chomp
