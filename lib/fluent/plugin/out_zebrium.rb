@@ -302,7 +302,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           return false, nil
         end
       end
-      logbasename = kubernetes["container_name"]
+      fpath = kubernetes["container_name"]
       keys = [ "namespace_name", "host", "container_name" ]
       for k in keys do
           if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
@@ -321,7 +321,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           end
       end
 
-      keys = [ "namespace_id", "pod_name", "pod_id", "container_image", "container_image_id" ]
+      keys = [ "namespace_id", "container_name", "pod_name", "pod_id", "container_image", "container_image_id" ]
       for k in keys do
           if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
             cfgs[k] = kubernetes[k]
@@ -332,8 +332,25 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       end
       unless kubernetes["annotations"].nil?
         tags = kubernetes["annotations"]
+        for t in tags.keys
+          if t == "zebrium.com/ze_logtype" and not tags[t].empty?
+            user_mapping = true
+            logbasename = tags[t]
+          end
+        end
       end
-      fpath = logbasename
+
+      unless kubernetes["labels"].nil?
+        for k in kubernetes["labels"].keys
+          if k == "zebrium.com/ze_logtype" and not kubernetes["labels"][k].empty?
+            user_mapping = true
+            logbasename = kubernetes["labels"][k]
+          end
+        end
+      end
+      if not user_mapping
+        logbasename = kubernetes["container_name"]
+      end
     elsif chunk_tag =~ /^containers\./
       if record.key?("tailed_path")
         fpath = record["tailed_path"]
@@ -346,13 +363,20 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           if cm.nil?
             return false, headers
           end
-          logbasename = cm['name']
-          ids["app"] = logbasename
           cfgs["container_id"] = container_id
+          cfgs["container_name"] = cm['name']
           labels = cm['labels']
           for k in labels.keys do
             cfgs[k] = labels[k]
+            if k == "zebrium.com/ze_logtype" and not labels[k].empty?
+              user_mapping = true
+              logbasename = labels[k]
+            end
           end
+          if not user_mapping
+            logbasename = cm['name']
+          end
+          ids["app"] = logbasename
           cfgs["image"] = cm['image']
         else
           log.error("Wrong container log file: ", fpath)
