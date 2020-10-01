@@ -283,6 +283,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     user_mapping = false
     fpath = ""
 
+    record_host = ""
+    if record.key?("host") and not record["host"].empty?
+      record_host = record["host"]
+    end
     has_container_keys = false
     if record.key?("container_id") and record.key?("container_name")
       has_container_keys = true
@@ -292,7 +296,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       forwarded_log = true
       logbasename = "syslog"
       ids["app"] = logbasename
-      ids["host"] = record["host"]
+      ids["host"] = record_host
       is_container_log = false
     elsif record.key?("kubernetes") and not record.fetch("kubernetes").nil?
       kubernetes = record["kubernetes"]
@@ -388,6 +392,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       logbasename = record['container_name'].sub(/^\//, '')
       ids["app"] = logbasename
       cfgs["container_id"] = record['container_id']
+      cfgs["container_name"] = logbasename
     else
       is_container_log = false
       if record.key?("tailed_path")
@@ -408,12 +413,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       elsif chunk_tag =~ /^k8s\.events/
         logbasename = "zk8s-events"
       elsif chunk_tag =~ /^ztcp\.events\./
-        ids["host"] = record["host"] ? record["host"] : "ztcp_host"
+        ids["host"] = record_host.empty? ? "ztcp_host": record["host"]
         logbasename = record["logbasename"] ? record["logbasename"] : "ztcp_stream"
         forwarded_log = true
         log_type = "tcp_forward"
       elsif chunk_tag =~ /^zhttp\.events\./
-        ids["host"] = record["host"] ? record["host"] : "ztttp_host"
+        ids["host"] = record_host.empty? ? "ztttp_host" : record["host"]
         logbasename = record["logbasename"] ? record["logbasename"] : "zhttp_stream"
         forwarded_log = true
         log_type = "http_forward"
@@ -427,7 +432,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
     cfgs["ze_file_path"] = fpath
     if not ids.key?("host") or ids.fetch("host").nil?
-      ids["host"] = get_host()
+      if record_host.empty?
+        ids["host"] = get_host()
+      else
+        ids["host"] = record_host
+      fi
     end
     unless @ze_deployment_name.empty?
       ids["ze_deployment_name"] = @ze_deployment_name
