@@ -6,7 +6,7 @@ require 'uri'
 require 'json'
 require 'docker'
 
-$ZLOG_COLLECTOR_VERSION = '1.41.0'
+$ZLOG_COLLECTOR_VERSION = '1.42.0'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -25,6 +25,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :ze_host_tags, :string, :default => ""
   config_param :use_buffer, :bool, :default => true
   config_param :verify_ssl, :bool, :default => false
+  config_param :ze_send_json, :bool, :default => false
   config_param :ze_support_data_send_intvl, :integer, :default => 600
   config_param :log_forwarder_mode, :bool, :default => false
   config_param :ec2_api_client_timeout_secs, :integer, :default => 1
@@ -436,7 +437,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         ids["host"] = get_host()
       else
         ids["host"] = record_host
-      fi
+      end
     end
     unless @ze_deployment_name.empty?
       ids["ze_deployment_name"] = @ze_deployment_name
@@ -645,23 +646,27 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     meta_data = {}
     chunk.each do |entry|
       record = entry[1]
-      if headers.empty?
+      if headers.empty? and @ze_send_json == false
         should_send, headers = get_request_headers(tag, record)
         if should_send == false
           return
         end
-        # get_request_headers() returns empty header, it means
-        # we should send json message to server
-        if headers.empty?
-          send_json = true
-          if host.empty?
+      end
+      # get_request_headers() returns empty header, it means
+      # we should send json message to server
+      if headers.empty? or @ze_send_json
+        send_json = true
+        if host.empty?
+          if record.key?("host") and not record["host"].empty?
+            host = record["host"]
+          else
             host = get_host()
-            meta_data['collector'] = $ZLOG_COLLECTOR_VERSION
-            meta_data['host'] = host
-            meta_data['ze_deployment_name'] = @ze_deployment_name
-            meta_data['tags'] = @ze_tags.dup
-            meta_data['tags']['fluentd_tag'] = tag
           end
+          meta_data['collector'] = $ZLOG_COLLECTOR_VERSION
+          meta_data['host'] = host
+          meta_data['ze_deployment_name'] = @ze_deployment_name
+          meta_data['tags'] = @ze_tags.dup
+          meta_data['tags']['fluentd_tag'] = tag
         end
       end
 
