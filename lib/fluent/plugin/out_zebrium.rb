@@ -6,7 +6,7 @@ require 'uri'
 require 'json'
 require 'docker'
 
-$ZLOG_COLLECTOR_VERSION = '1.42.0'
+$ZLOG_COLLECTOR_VERSION = '1.47.0'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -16,6 +16,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   DEFAULT_LINE_FORMAT_TYPE = 'stdout'
   DEFAULT_FORMAT_TYPE = 'json'
   DEFAULT_BUFFER_TYPE = "memory"
+  DEFAULT_DEPLOYMENT_NAME = "default"
 
   config_param :ze_log_collector_url, :string, :default => ""
   config_param :ze_log_collector_token, :string, :default => ""
@@ -114,6 +115,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       else
         @ze_tags[ary[0]] = ary[1]
       end
+    end
+    if @ze_deployment_name.empty?
+        log.info("Set deployment name to default value " + DEFAULT_DEPLOYMENT_NAME)
+        @ze_deployment_name = DEFAULT_DEPLOYMENT_NAME
     end
 
     @file_mappings = {}
