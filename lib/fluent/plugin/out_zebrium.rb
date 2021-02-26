@@ -20,7 +20,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
   config_param :ze_log_collector_url, :string, :default => ""
   config_param :ze_log_collector_token, :string, :default => ""
-  config_param :ze_log_collector_type, :string, :default => "linux"
+  config_param :ze_log_collector_type, :string, :default => "kubernetes"
   config_param :ze_host, :string, :default => ""
   config_param :ze_timezone, :string, :default => ""
   config_param :ze_deployment_name, :string, :default => ""
