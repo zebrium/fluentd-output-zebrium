@@ -531,8 +531,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     meta_data['cfgs'] = cfgs
     meta_data['tags'] = tags
     meta_data['tz'] = @ze_timezone.empty? ? Time.now.zone : @ze_timezone
-    meta_data['ze_log_collector_vers'] = $ZLOG_COLLECTOR_VERSION
-    meta_data['ze_log_collector_type'] = @ze_log_collector_type
+    meta_data['ze_log_collector_vers'] = $ZLOG_COLLECTOR_VERSION + "-" + @ze_log_collector_type
 
     headers = {}
     headers["authtoken"] = @auth_token.to_s
