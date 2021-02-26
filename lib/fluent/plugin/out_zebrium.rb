@@ -6,7 +6,7 @@ require 'uri'
 require 'json'
 require 'docker'
 
-$ZLOG_COLLECTOR_VERSION = '1.47.0'
+$ZLOG_COLLECTOR_VERSION = '1.47.1'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -20,6 +20,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
   config_param :ze_log_collector_url, :string, :default => ""
   config_param :ze_log_collector_token, :string, :default => ""
+  config_param :ze_log_collector_type, :string, :default => "linux"
   config_param :ze_host, :string, :default => ""
   config_param :ze_timezone, :string, :default => ""
   config_param :ze_deployment_name, :string, :default => ""
@@ -155,6 +156,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @zapi_support_uri.path = "/api/v2/support"
     @auth_token = conf["ze_log_collector_token"]
     log.info("ze_log_collector_vers=" + $ZLOG_COLLECTOR_VERSION)
+    log.info("ze_log_collector_type=" + @ze_log_collector_type)
     log.info("ze_deployment_name=" + (conf["ze_deployment_name"].nil? ? "<not set>": conf["ze_deployment_name"]))
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
     log.info("etc_hostname=" + @etc_hostname)
@@ -530,6 +532,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     meta_data['tags'] = tags
     meta_data['tz'] = @ze_timezone.empty? ? Time.now.zone : @ze_timezone
     meta_data['ze_log_collector_vers'] = $ZLOG_COLLECTOR_VERSION
+    meta_data['ze_log_collector_type'] = @ze_log_collector_type
 
     headers = {}
     headers["authtoken"] = @auth_token.to_s
