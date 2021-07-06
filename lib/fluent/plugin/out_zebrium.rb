@@ -5,8 +5,9 @@ require 'httpclient'
 require 'uri'
 require 'json'
 require 'docker'
+require 'yaml'
 
-$ZLOG_COLLECTOR_VERSION = '1.47.1'
+$ZLOG_COLLECTOR_VERSION = '1.48.1'
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -32,6 +33,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :log_forwarder_mode, :bool, :default => false
   config_param :ec2_api_client_timeout_secs, :integer, :default => 1
   config_param :disable_ec2_meta_data, :bool, :default => true
+  config_param :ze_host_in_logpath, :integer, :default => 0 
+  config_param :ze_forward_tag, :string, :default => "ze_forwarded_logs"
 
   config_section :format do
     config_set_default :@type, DEFAULT_LINE_FORMAT_TYPE
@@ -160,6 +163,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     log.info("ze_deployment_name=" + (conf["ze_deployment_name"].nil? ? "<not set>": conf["ze_deployment_name"]))
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
     log.info("etc_hostname=" + @etc_hostname)
+    log.info("ze_forward_tag=" + @ze_forward_tag)
+    log.info("ze_host_in_logpath=#{@ze_host_in_logpath}")
     data = {}
     data['msg'] = "log collector starting"
     send_support_data(data)
@@ -299,7 +304,17 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     if record.key?("container_id") and record.key?("container_name")
       has_container_keys = true
     end
-    if chunk_tag =~ /^sysloghost\./
+    if chunk_tag =~ /^sysloghost\./ or chunk_tag =~ /^#{ze_forward_tag}\./
+      if record_host.empty? and ze_host_in_logpath > 0 and record.key?("tailed_path")
+	   tailed_path = record["tailed_path"]
+	   path_components = tailed_path.split("/")
+	   if path_components.length() < ze_host_in_logpath 
+		log.info("Cannot find host at index #{ze_host_in_logpath} in '#{tailed_path}'")
+	   else
+		# note .split has empty first element from initial '/'
+		record_host = path_components[ze_host_in_logpath]
+	   end
+      end
       log_type = "syslog"
       forwarded_log = true
       logbasename = "syslog"
