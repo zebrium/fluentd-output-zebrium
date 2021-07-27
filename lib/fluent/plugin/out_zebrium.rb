@@ -9,6 +9,22 @@ require 'yaml'
 
 $ZLOG_COLLECTOR_VERSION = '1.48.1'
 
+class PathMappings 
+  def initialize
+    @active = false
+    @patterns = Array.new
+    @ids = Hash.new
+    @cfgs = Hash.new
+    @tags = Hash.new
+  end
+
+  attr_accessor :active
+  attr_accessor :patterns
+  attr_accessor :ids
+  attr_accessor :cfgs
+  attr_accessor :tags
+end
+
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
 
@@ -35,6 +51,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :disable_ec2_meta_data, :bool, :default => true
   config_param :ze_host_in_logpath, :integer, :default => 0 
   config_param :ze_forward_tag, :string, :default => "ze_forwarded_logs"
+  config_param :ze_path_map_file, :string, :default => ""
 
   config_section :format do
     config_set_default :@type, DEFAULT_LINE_FORMAT_TYPE
@@ -125,6 +142,8 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         @ze_deployment_name = DEFAULT_DEPLOYMENT_NAME
     end
 
+    @path_mappings = PathMappings.new
+    read_path_mappings()
     @file_mappings = {}
     if @log_forwarder_mode
       log.info("out_zebrium running in log forwarder mode")
@@ -164,6 +183,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     log.info("log_collector_url=" + conf["ze_log_collector_url"])
     log.info("etc_hostname=" + @etc_hostname)
     log.info("ze_forward_tag=" + @ze_forward_tag)
+    log.info("ze_path_map_file=" + @ze_path_map_file)
     log.info("ze_host_in_logpath=#{@ze_host_in_logpath}")
     data = {}
     data['msg'] = "log collector starting"
@@ -174,6 +194,71 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 #   record = inject_values_to_record(tag, time, record)
 #   @formatter.format(tag, time, record).chomp + "\n"
 # end
+
+  def read_path_mappings() 
+    if ze_path_map_file.length() == 0 
+      return
+    end
+    path_map_cfg_file = @ze_path_map_file
+    if not File.exist?(path_map_cfg_file)
+      log.info(path_map_cfg_file + " does not exist.")
+      @path_mappings.active = false
+      return
+    end
+    @path_mappings.active = true
+    pmj = ""
+    log.info(path_map_cfg_file + " exists, loading path maps")
+    file = File.read(path_map_cfg_file)
+    begin
+      pmj = JSON.parse(file)
+    rescue
+      log.error(path_map_cfg_file+" does not appear to contain valid JSON")
+      @path_mappings.active = false
+      return
+    end
+    log.info(pmj)
+    pmj['mappings'].each { |key, value| 
+      if key == 'patterns' 
+        # patterns
+        value.each { |pattern|
+          begin
+            re = Regexp.compile(pattern, Regexp::EXTENDED)
+            @path_mappings.patterns.append(re)
+          rescue
+            log.error("Invalid path pattern '" + pattern + "' detected")
+          end
+        }
+      elsif key == 'ids' 
+        # ids
+        value.each { |id| 
+          @path_mappings.ids.store(id, id)
+        }
+      elsif key == 'configs'
+        # configs
+        value.each { |config|
+          @path_mappings.cfgs.store(config, config)
+        }
+      elsif key == 'tags' 
+        # tags
+        value.each { |tag|
+          log.info(@path_mappings.tags)
+          @path_mappings.tags.store(tag, tag)
+        }
+      else 
+          log.error("Invalid JSON key '"+key+"' detected")
+      end
+    }
+    if @path_mappings.patterns.length() == 0 
+      log.info("No patterns are defined in "+path_map_cfg_file)
+      @path_mappings.active = false
+    elsif @path_mappings.ids.length() == 0 and 
+        @path_mappings.cfgs.length() == 0 and 
+        @path_mappings.tags.length() == 0 
+      log.error("No ids/configs/tag mappings are defined in "+path_map_cfg_file)
+      @path_mappings.active = false
+    end
+
+  end
 
   def read_file_mappings()
     file_map_cfg_file = "/etc/td-agent/log-file-map.conf"
@@ -203,6 +288,29 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         end
         log.info("Adding mapping " + item['file'] + " => " + item['alias'])
         @file_mappings[item['file']] = item['alias']
+      end
+    }
+  end
+
+  def map_path_ids(tailed_path, ids, cfgs, tags) 
+    if not @path_mappings.active 
+      return
+    end
+    @path_mappings.patterns.each { |re| 
+       res = re.match(tailed_path)
+       if res? 
+        captures = res.named_captures
+        captures.each { |key, value|
+          if @path_mappings.ids[key] != nil 
+            ids[key] = value
+          end
+          if @path_mappings.cfgs[key] != nil 
+            cfgs[key] = value
+          end
+          if @path_mappings.tags[key] != nil 
+            tags[key] = value
+          end
+        }
       end
     }
   end
@@ -468,7 +576,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       tags[k] = @ze_tags[k]
     end
     tags["fluentd_tag"] = chunk_tag
-
+    
     id_key = ""
     keys = ids.keys.sort
     keys.each do |k|
@@ -479,6 +587,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           id_key = id_key + "," + k + "=" + ids[k]
         end
       end
+    end
+
+    if record.key?("tailed_path")
+      map_path_ids(record.key["tailed_path"], ids, cfgs, tags)
     end
 
     has_stream_token = false
