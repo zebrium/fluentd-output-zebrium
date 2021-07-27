@@ -326,7 +326,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       if kubernetes.key?("namespace_name") and not kubernetes.fetch("namespace_name").nil?
         namespace = kubernetes.fetch("namespace_name")
         if namespace.casecmp?("orphaned") or namespace.casecmp?(".orphaned")
-          return false, nil
+          return false, nil, nil
         end
       end
       fpath = kubernetes["container_name"]
@@ -388,7 +388,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           container_id = ary[0]
           cm = get_container_meta_data(container_id)
           if cm.nil?
-            return false, headers
+            return false, headers, nil
           end
           cfgs["container_id"] = container_id
           cfgs["container_name"] = cm['name']
@@ -449,7 +449,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         # Default goes to zlog-collector. Usually there are fluentd generated message
         # and our own log messages
         # for these generic messages, we will send as json messages
-        return true, {}
+        return true, {}, nil
       end
       ids["app"] = logbasename
     end
@@ -530,7 +530,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     headers["authtoken"] = stream_token
     headers["Content-Type"] = "application/json"
     headers["Transfer-Encoding"] = "chunked"
-    return true, headers
+    return true, headers, stream_token
   end
 
   def get_stream_token(ids, cfgs, tags, logbasename, is_container_log, user_mapping,
@@ -649,6 +649,41 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     return data
   end
 
+  def  post_message_data(send_json, headers, messages)
+    @data_post_sent = @data_post_sent + 1
+    if send_json
+      req = {}
+      req['log_type'] = 'generic'
+      req['messages'] = messages
+      headers = {}
+      headers["authtoken"] = @auth_token
+      headers["Content-Type"] = "application/json"
+      resp = post_data(@zapi_ingest_uri, req.to_json, headers)
+      if resp.ok? == false
+        log.error("Server ingest API return error: code #{resp.code} - #{resp.body}")
+      else
+        @data_post_success = @data_post_success + 1
+      end
+    else
+      resp = post_data(@zapi_post_uri, messages.join("\n") + "\n", headers)
+      if resp.ok? == false
+        if resp.code == 401
+          # Our stream token becomes invalid for some reason, have to acquire new one.
+          # Usually this only happens in testing when server gets recreated.
+          # There is no harm to clear all stream tokens.
+          log.error("Server says stream token is invalid: #{resp.code} - #{resp.body}")
+          log.error("Delete all stream tokens")
+          @stream_tokens = {}
+          raise RuntimeError, "Delete stream token, and retry"
+        else
+          raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
+        end
+      else
+        @data_post_success = @data_post_success + 1
+      end
+    end
+  end
+
   def write(chunk)
     epoch = Time.now.to_i
     if epoch - @last_support_data_sent > @ze_support_data_send_intvl
@@ -666,14 +701,17 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     send_json = false
     host = ''
     meta_data = {}
+    last_stoken = {}
+    last_headers = {}
     chunk.each do |entry|
       record = entry[1]
-      if headers.empty? and @ze_send_json == false
-        should_send, headers = get_request_headers(tag, record)
+      if @ze_send_json == false
+        should_send, headers, cur_stoken = get_request_headers(tag, record)
         if should_send == false
           return
         end
       end
+
       # get_request_headers() returns empty header, it means
       # we should send json message to server
       if headers.empty? or @ze_send_json
@@ -690,6 +728,18 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           meta_data['tags'] = @ze_tags.dup
           meta_data['tags']['fluentd_tag'] = tag
         end
+      end
+
+      if num_records == 0 
+          last_stoken = cur_stoken
+          last_headers = headers
+      elsif last_stoken != cur_stoken
+          log.info("Streamtoken changed in chunk, num_records="+num_records.to_s)
+          post_message_data(send_json, last_headers, messages)
+          messages = []
+          last_stoken = cur_stoken
+          last_headers = headers
+          num_records = 0
       end
 
       if entry[0].nil?
@@ -733,42 +783,12 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       end
       num_records += 1
     end
+    # Post remaining messages, if any
     if num_records == 0
       log.trace("Chunk has no record, no data to post")
       return
     end
-    @data_post_sent = @data_post_sent + 1
-    if send_json
-      req = {}
-      req['log_type'] = 'generic'
-      req['messages'] = messages
-      headers = {}
-      headers["authtoken"] = @auth_token
-      headers["Content-Type"] = "application/json"
-      resp = post_data(@zapi_ingest_uri, req.to_json, headers)
-      if resp.ok? == false
-        log.error("Server ingest API return error: code #{resp.code} - #{resp.body}")
-      else
-        @data_post_success = @data_post_success + 1
-      end
-    else
-      resp = post_data(@zapi_post_uri, messages.join("\n") + "\n", headers)
-      if resp.ok? == false
-        if resp.code == 401
-          # Our stream token becomes invalid for some reason, have to acquire new one.
-          # Usually this only happens in testing when server gets recreated.
-          # There is no harm to clear all stream tokens.
-          log.error("Server says stream token is invalid: #{resp.code} - #{resp.body}")
-          log.error("Delete all stream tokens")
-          @stream_tokens = {}
-          raise RuntimeError, "Delete stream token, and retry"
-        else
-          raise RuntimeError, "Failed to send data to HTTP Source. #{resp.code} - #{resp.body}"
-        end
-      else
-        @data_post_success = @data_post_success + 1
-      end
-    end
+    post_message_data(send_json, headers, messages)
   end
 
   def send_support_data(data)
