@@ -7,7 +7,7 @@ require 'json'
 require 'docker'
 require 'yaml'
 
-$ZLOG_COLLECTOR_VERSION = '1.48.1'
+$ZLOG_COLLECTOR_VERSION = '1.49.1'
 
 class PathMappings 
   def initialize
