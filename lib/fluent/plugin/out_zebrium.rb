@@ -590,7 +590,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
 
     if record.key?("tailed_path")
-      map_path_ids(record.key["tailed_path"], ids, cfgs, tags)
+      map_path_ids(record["tailed_path"], ids, cfgs, tags)
     end
 
     has_stream_token = false
