@@ -728,7 +728,16 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     if evt_obj.key?('reason')
       evt_str = evt_str + " reason=" + evt_obj['reason']
     end
-    msg = evt_obj["lastTimestamp"] + " " + severity + " " + evt_str + " msg=" + evt_obj['message'].chomp
+    # log.info("Event obj:" + evt_obj.to_s)
+
+    if evt_obj.key?('lastTimestamp') and not evt_obj.fetch('lastTimestamp').nil?
+      timeStamp = evt_obj["lastTimestamp"]
+    elsif evt_obj.key('eventTime') and not evt_obj.fetch('eventTime').nil?
+      timeStamp = evt_obj["eventTime"]
+    else 
+      timeStamp = ''
+    end
+    msg = timeStamp + " " + severity + " " + evt_str + " msg=" + evt_obj['message'].chomp
     return msg
   end
 
