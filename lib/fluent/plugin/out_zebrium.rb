@@ -7,7 +7,7 @@ require 'json'
 require 'docker'
 require 'yaml'
 
-$ZLOG_COLLECTOR_VERSION = '1.49.2'
+$ZLOG_COLLECTOR_VERSION = '1.49.3'
 
 class PathMappings 
   def initialize
@@ -298,7 +298,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
     @path_mappings.patterns.each { |re| 
        res = re.match(tailed_path)
-       if res? 
+       if res
         captures = res.named_captures
         captures.each { |key, value|
           if @path_mappings.ids[key] != nil 
