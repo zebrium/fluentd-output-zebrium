@@ -6,8 +6,9 @@ require 'uri'
 require 'json'
 require 'docker'
 require 'yaml'
+require 'time'
 
-$ZLOG_COLLECTOR_VERSION = '1.49.3'
+$ZLOG_COLLECTOR_VERSION = '1.49.4'
 
 class PathMappings 
   def initialize
@@ -24,6 +25,23 @@ class PathMappings
   attr_accessor :cfgs
   attr_accessor :tags
 end
+
+class PodConfig
+  def initialize
+    @cfgs = Hash.new
+    @atime = time.now()
+  end
+
+  attr_accessor :cfgs
+  attr_accessor :atime
+end 
+
+class PodConfigs
+  def initialize
+    @cfgs = Hash.new
+  end
+  attr_accessor :cfgs
+end 
 
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
@@ -143,6 +161,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
 
     @path_mappings = PathMappings.new
+    @pod_configs = PodConfigs.new
     read_path_mappings()
     @file_mappings = {}
     if @log_forwarder_mode
@@ -383,6 +402,64 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
   end
 
+  # save kubernetes configues, related to a specifc pod_id for 
+  # potential use later for container file-based logs
+  def save_kubernetes_cfgs(cfgs) 
+    if (not cfgs.key?("pod_id")) or cfgs.fetch("pod_id").nil?
+      return
+    end
+    pod_id = cfgs["pod_id"]
+    if @pod_configs.cfgs.key?(pod_id)
+      pod_cfg = @pod_configs.cfgs[pod_id]
+    else
+      pod_cfg = PodConfig.new()
+    end
+    pod_cfg.atime = Time.now()
+    # Select which config keys to save. 
+    keys = [ "cmdb_name", "namespace_name", "namespace_id", "container_name", "pod_name" ]
+    for k in keys do
+        if cfgs.key?(k) and not cfgs.fetch(k).nil?
+          pod_cfg.cfgs[k] = cfgs[k]
+        end
+     end
+    @pod_configs.cfgs[pod_id]=cfg
+  end
+
+  # If the current configuration has a pod_id matching one of the
+  # previously stored ones any associated k8s config info will be
+  # added.
+  def add_kubernetes_cfgs_for_pod_id(in_cfgs)
+    if (not in_cfgs.key?("pod_id")) or in_cfgs.fetch("pod_id").nil?
+        return in_cfgs
+    end
+    pod_id = in_cfgs["pod_id"]
+
+    if not @pod_configs.cfgs.key?(pod_id)
+      return in_cfgs
+    end
+    pod_cfgs = @pod_configs.cfgs(pod_id)
+
+    # Ruby times are UNIX time in seconds. Toss this if unused for
+    # 10 minutes as it may be outdated
+    if Time.now() - pod_cfgs.atime > 60*10
+      @pod_configs.cfgs.delete(pod_id)
+      # while paying the cost, do a quick check for old entries
+      @pod_configs.cfgs.each do |pod_id, cfg|
+        if Time.now() - cfg.atime > 60*10
+          @pod_configs.cfgs.delete(pod_id)
+          break
+        end
+      end
+      return in_cfgs
+    end
+
+    pod_cfgs.atime = Time.now()
+    pod_cfgs.cfgs.each do |key, value|
+      in_cfgs[key] = value
+    end
+    return in_cfgs
+  end
+
   def get_request_headers(chunk_tag, record)
     headers = {}
     ids = {}
@@ -445,6 +522,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
             if k == "host" and @k8s_hostname.empty?
                @k8s_hostname = kubernetes[k]
             end
+            # Requirement for ZS-2185 add cmdb_role, based on namespace_name
+            if k == "namespace_name" 
+                cfgs["cmdb_role"] = kubernetes[k].gsub("-","_")
+            end
           end
       end
 
@@ -455,7 +536,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
               break
           end
       end
-
       keys = [ "namespace_id", "container_name", "pod_name", "pod_id", "container_image", "container_image_id" ]
       for k in keys do
           if kubernetes.key?(k) and not kubernetes.fetch(k).nil?
@@ -465,6 +545,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       unless kubernetes["labels"].nil?
         cfgs.merge!(kubernetes["labels"])
       end
+      # At this point k8s config should be set. Save these so a subsequent file-log
+      # record for the same pod_id can use them.
+      save_kubernetes_cfgs(cfgs)
+
       unless kubernetes["annotations"].nil?
         tags = kubernetes["annotations"]
         for t in tags.keys
@@ -591,6 +675,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
     if record.key?("tailed_path")
       map_path_ids(record["tailed_path"], ids, cfgs, tags)
+      add_kubernetes_cfgs_for_pod_id(cfgs)
     end
 
     has_stream_token = false
