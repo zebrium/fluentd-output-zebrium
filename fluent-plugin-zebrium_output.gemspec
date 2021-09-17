@@ -10,7 +10,7 @@ Gem::Specification.new do |gem|
   gem.summary       = %q{Zebrium fluentd output plugin}
   gem.homepage      = "https://github.com/Zebrium/fluentd-output-zebrium"
   gem.license       = "Apache-2.0"
-  gem.metadata      = { "git-version" => `/auto/share/bin/git_commit_id.sh` }
+  gem.metadata      = { "git-version" => `git log -n 1 --pretty=format:"%H"` }
 
   gem.files         = `git ls-files`.split($/)
   gem.executables   = gem.files.grep(%r{^bin/}) { |f| File.basename(f) }
