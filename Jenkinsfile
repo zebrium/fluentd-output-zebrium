@@ -2,7 +2,10 @@
  pipeline {
     agent any
     stages {
-        stage('Build and Publish Gem')
-        buildGem(false)
+        stage('Build and Publish Gem'){
+            steps{
+                buildGem(false)
+            }
+        }
    }
 }
