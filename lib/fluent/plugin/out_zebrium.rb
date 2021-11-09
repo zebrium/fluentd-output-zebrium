@@ -29,7 +29,7 @@ end
 class PodConfig
   def initialize
     @cfgs = Hash.new
-    @atime = time.now()
+    @atime = Time.now()
   end
 
   attr_accessor :cfgs
@@ -422,7 +422,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           pod_cfg.cfgs[k] = cfgs[k]
         end
      end
-    @pod_configs.cfgs[pod_id]=cfg
+    @pod_configs.cfgs[pod_id]=pod_cfg
   end
 
   # If the current configuration has a pod_id matching one of the
@@ -465,7 +465,6 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     ids = {}
     cfgs = {}
     tags = {}
-
     if record.key?("docker") and not record.fetch("docker").nil?
         container_id = record["docker"]["container_id"]
         if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
@@ -549,7 +548,15 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       # At this point k8s config should be set. Save these so a subsequent file-log
       # record for the same pod_id can use them.
       save_kubernetes_cfgs(cfgs)
-  
+      unless kubernetes["namespace_annotations"].nil?
+        tags = kubernetes["namespace_annotations"]
+        for t in tags.keys
+          if t == "zebrium.com/ze_service_group" and not tags[t].empty?
+            override_deployment = tags[t]
+          end
+        end
+      end
+
       unless kubernetes["annotations"].nil?
         tags = kubernetes["annotations"]
         for t in tags.keys
@@ -667,6 +674,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       ids["ze_deployment_name"] = @ze_deployment_name
     end
     unless override_deployment.empty?
+      log.debug("Updating ze_deployment_name to '#{override_deployment}'")
       ids["ze_deployment_name"] = override_deployment
     end
     for k in @ze_tags.keys do
@@ -925,6 +933,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     chunk.each do |entry|
       record = entry[1]
       if @ze_send_json == false
+        if entry[1].nil?
+          log.warn("nil detected, ignoring remainder of chunk")
+          return
+        end
         should_send, headers, cur_stoken = get_request_headers(tag, record)
         if should_send == false
           return
