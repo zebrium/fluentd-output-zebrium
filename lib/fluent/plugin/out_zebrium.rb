@@ -8,7 +8,7 @@ require 'docker'
 require 'yaml'
 require 'time'
 
-$ZLOG_COLLECTOR_VERSION = '1.49.4'
+$ZLOG_COLLECTOR_VERSION = '1.49.5'
 
 class PathMappings 
   def initialize
@@ -480,6 +480,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     forwarded_log = false
     user_mapping = false
     fpath = ""
+    override_deployment = ""
 
     record_host = ""
     if record.key?("host") and not record["host"].empty?
@@ -548,13 +549,16 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       # At this point k8s config should be set. Save these so a subsequent file-log
       # record for the same pod_id can use them.
       save_kubernetes_cfgs(cfgs)
-
+  
       unless kubernetes["annotations"].nil?
         tags = kubernetes["annotations"]
         for t in tags.keys
           if t == "zebrium.com/ze_logtype" and not tags[t].empty?
             user_mapping = true
             logbasename = tags[t]
+          end
+          if t == "zebrium.com/ze_service_group" and not tags[t].empty?
+            override_deployment = tags[t]
           end
         end
       end
@@ -564,6 +568,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
           if k == "zebrium.com/ze_logtype" and not kubernetes["labels"][k].empty?
             user_mapping = true
             logbasename = kubernetes["labels"][k]
+          end
+          if k == "zebrium.com/ze_service_group" and not kubernetes["labels"][k].empty?
+            override_deployment = kubernetes["labels"][k]
           end
         end
       end
@@ -590,6 +597,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
             if k == "zebrium.com/ze_logtype" and not labels[k].empty?
               user_mapping = true
               logbasename = labels[k]
+            end
+            if k == "zebrium.com/ze_service_group" and not labels[k].empty?
+              override_deployment = labels[k]
             end
           end
           if not user_mapping
@@ -655,6 +665,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
     unless @ze_deployment_name.empty?
       ids["ze_deployment_name"] = @ze_deployment_name
+    end
+    unless override_deployment.empty?
+      ids["ze_deployment_name"] = override_deployment
     end
     for k in @ze_tags.keys do
       tags[k] = @ze_tags[k]
