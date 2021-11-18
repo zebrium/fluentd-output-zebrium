@@ -70,6 +70,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :ze_host_in_logpath, :integer, :default => 0 
   config_param :ze_forward_tag, :string, :default => "ze_forwarded_logs"
   config_param :ze_path_map_file, :string, :default => ""
+  config_param :ze_handle_host_as_config, :bool, :default => false 
 
   config_section :format do
     config_set_default :@type, DEFAULT_LINE_FORMAT_TYPE
@@ -465,6 +466,14 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     ids = {}
     cfgs = {}
     tags = {}
+
+    # Sometimes 'record' appears to be a simple number, which causes an exception when
+    # used as a hash. Until the underlying issue is addressed detect this and log.
+    if record.class.name != "Hash"  or not record.respond_to?(:key?)
+      log.error("Record is not a hash, unable to process (class: ${record.class.name}).")
+      return false, nil, nil
+    end
+
     if record.key?("docker") and not record.fetch("docker").nil?
         container_id = record["docker"]["container_id"]
         if record.key?("kubernetes") and not record.fetch("kubernetes").nil?
@@ -697,6 +706,17 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     if record.key?("tailed_path")
       map_path_ids(record["tailed_path"], ids, cfgs, tags)
       add_kubernetes_cfgs_for_pod_id(cfgs)
+    end
+
+    # host should be handled as a config element instead of an id.
+    # This is used when host changes frequently, causing issues with
+    # detection. The actual host is stored in the cfgs metadata, and
+    # a constant is stored in the ids metadata.
+    # Note that a host entry must be present in ids for correct backend
+    # processing, it is simply a constant at this point.
+    if ze_handle_host_as_config && ids.key?("host")
+      cfgs["host"] = ids["host"]
+      ids["host"] = "host_in_config"
     end
 
     has_stream_token = false
