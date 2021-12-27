@@ -584,6 +584,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
                 if @ns_to_svcgrp_mappings.active
                   if @ns_to_svcgrp_mappings.svcgrps.key?(kubernetes[k]) and not @ns_to_svcgrp_mappings.svcgrps.fetch(kubernetes[k]).nil?
                     ids["ze_deployment_name"] = @ns_to_svcgrp_mappings.svcgrps[kubernetes[k]]
+                    @ze_deployment_name = @ns_to_svcgrp_mappings.svcgrps[kubernetes[k]]
                   end
                 end
             end
