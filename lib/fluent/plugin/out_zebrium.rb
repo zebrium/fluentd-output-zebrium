@@ -8,7 +8,7 @@ require 'docker'
 require 'yaml'
 require 'time'
 
-$ZLOG_COLLECTOR_VERSION = '1.50.0'
+$ZLOG_COLLECTOR_VERSION = '1.51.0'
 
 class PathMappings 
   def initialize
@@ -43,6 +43,15 @@ class PodConfigs
   attr_accessor :cfgs
 end 
 
+class NamespaceToServiceGroup
+  def initialize
+    @active = false
+    @svcgrps = Hash.new
+  end
+  attr_accessor :active
+  attr_accessor :svcgrps
+end
+
 class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   Fluent::Plugin.register_output('zebrium', self)
 
@@ -70,6 +79,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :ze_host_in_logpath, :integer, :default => 0 
   config_param :ze_forward_tag, :string, :default => "ze_forwarded_logs"
   config_param :ze_path_map_file, :string, :default => ""
+  config_param :ze_ns_svcgrp_map_file, :string, :default => ""
   config_param :ze_handle_host_as_config, :bool, :default => false 
 
   config_section :format do
@@ -163,7 +173,9 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 
     @path_mappings = PathMappings.new
     @pod_configs = PodConfigs.new
+    @ns_to_svcgrp_mappings = NamespaceToServiceGroup.new
     read_path_mappings()
+    read_ns_to_svcgrp_mappings()
     @file_mappings = {}
     if @log_forwarder_mode
       log.info("out_zebrium running in log forwarder mode")
@@ -205,6 +217,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     log.info("ze_forward_tag=" + @ze_forward_tag)
     log.info("ze_path_map_file=" + @ze_path_map_file)
     log.info("ze_host_in_logpath=#{@ze_host_in_logpath}")
+    log.info("ze_ns_svcgrp_map_file=#{@ze_ns_svcgrp_map_file}")
     data = {}
     data['msg'] = "log collector starting"
     send_support_data(data)
@@ -214,6 +227,40 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
 #   record = inject_values_to_record(tag, time, record)
 #   @formatter.format(tag, time, record).chomp + "\n"
 # end
+
+  def read_ns_to_svcgrp_mappings()
+    if ze_ns_svcgrp_map_file.length() == 0
+      @ns_to_svcgrp_mappings.active = false
+      return
+    end
+    ns_svcgrp_map_file = @ze_ns_svcgrp_map_file
+    if not File.exist?(ns_svcgrp_map_file)
+      log.info(ns_svcgrp_map_file + " ns_svcgrp_map_file does not exist.")
+      @ns_to_svcgrp_mappings.active = false
+      return
+    end
+    @ns_to_svcgrp_mappings.active = true
+    nsj = ""
+    log.info(ns_svcgrp_map_file + " exists, loading namespace to svcgrp maps")
+    file = File.read(ns_svcgrp_map_file)
+    begin
+      nsj = JSON.parse(file)
+    rescue Exception => e
+      log.error(ns_svcgrp_map_file + " does not appear to contain valid JSON: " + e.message)
+      @ns_to_svcgrp_mappings.active = false
+      return
+    end
+    log.info(nsj)
+    nsj.each { |key, value|
+      if( value != "" )
+        @ns_to_svcgrp_mappings.svcgrps.store(key, value)
+      end
+    }
+    if @ns_to_svcgrp_mappings.svcgrps.length() == 0
+      log.error("No ns/svcgrp mappings are defined in "+ns_svcgrp_map_file)
+      @ns_to_svcgrp_mappings.active = false
+    end
+  end
 
   def read_path_mappings() 
     if ze_path_map_file.length() == 0 
@@ -534,6 +581,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
             # Requirement for ZS-2185 add cmdb_role, based on namespace_name
             if k == "namespace_name" 
                 cfgs["cmdb_role"] = kubernetes[k].gsub("-","_")
+                if ns_to_svcgrp_mappings.active
+                  if ns_to_svcgrp_mappings.svcgrps.key?(kubernetes[k]) and not ns_to_svcgrp_mappings.svcgrps.fetch(kubernetes[k]).nil?
+                    ids["ze_deployment_name"] = ns_to_svcgrp_mappings.svcgrps[kubernetes[k]]
+                  end
+                end
             end
           end
       end
