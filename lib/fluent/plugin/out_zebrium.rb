@@ -536,6 +536,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     user_mapping = false
     fpath = ""
     override_deployment = ""
+    override_deployment_from_ns_svcgrp_map = ""
 
     record_host = ""
     if record.key?("host") and not record["host"].empty?
@@ -583,8 +584,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
                 cfgs["cmdb_role"] = kubernetes[k].gsub("-","_")
                 if @ns_to_svcgrp_mappings.active
                   if @ns_to_svcgrp_mappings.svcgrps.key?(kubernetes[k]) and not @ns_to_svcgrp_mappings.svcgrps.fetch(kubernetes[k]).nil?
-                    ids["ze_deployment_name"] = @ns_to_svcgrp_mappings.svcgrps[kubernetes[k]]
-                    @ze_deployment_name = @ns_to_svcgrp_mappings.svcgrps[kubernetes[k]]
+                    override_deployment_from_ns_svcgrp_map = @ns_to_svcgrp_mappings.svcgrps[kubernetes[k]]
                   end
                 end
             end
@@ -734,6 +734,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     end
     unless @ze_deployment_name.empty?
       ids["ze_deployment_name"] = @ze_deployment_name
+    end
+    unless override_deployment_from_ns_svcgrp_map.empty?
+      log.debug("Updating ze_deployment_name ns_svcgrp_map '#{override_deployment_from_ns_svcgrp_map}'")
+      ids["ze_deployment_name"] = override_deployment_from_ns_svcgrp_map
     end
     unless override_deployment.empty?
       log.debug("Updating ze_deployment_name to '#{override_deployment}'")
