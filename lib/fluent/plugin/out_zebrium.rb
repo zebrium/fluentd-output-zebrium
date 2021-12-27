@@ -217,7 +217,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     log.info("ze_forward_tag=" + @ze_forward_tag)
     log.info("ze_path_map_file=" + @ze_path_map_file)
     log.info("ze_host_in_logpath=#{@ze_host_in_logpath}")
-    log.info("ze_ns_svcgrp_map_file=#{@ze_ns_svcgrp_map_file}")
+    log.info("ze_ns_svcgrp_map_file=" + @ze_ns_svcgrp_map_file)
     data = {}
     data['msg'] = "log collector starting"
     send_support_data(data)
