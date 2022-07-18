@@ -8,7 +8,7 @@ require 'docker'
 require 'yaml'
 require 'time'
 
-$ZLOG_COLLECTOR_VERSION = '1.59.0'
+$ZLOG_COLLECTOR_VERSION = '1.60.0'
 
 class PathMappings 
   def initialize
@@ -610,7 +610,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         cfgs.merge!(kubernetes["labels"])
       end
       # Allow Cluster name to be set via an env variable
-      if @cluster_name.nil? and not @cluster_name.empty?
+      if !@cluster_name.nil? and !@cluster_name.empty?
         cfgs["cluster_name"] = @cluster_name
       end
 
