@@ -713,6 +713,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
       elsif chunk_tag =~ /^k8s\.events/
         logbasename = "zk8s-events"
+        # Allow Cluster name to be set via an env variable
+        if !@cluster_name.nil? and !@cluster_name.empty?
+          cfgs["cluster_name"] = @cluster_name
+        end
       elsif chunk_tag =~ /^ztcp\.events\./
         ids["host"] = record_host.empty? ? "ztcp_host": record["host"]
         logbasename = record["logbasename"] ? record["logbasename"] : "ztcp_stream"
