@@ -1,4 +1,4 @@
-@Library('cicd@clusterName') _
+@Library('cicd') _
  pipeline {
     agent any
     stages {
