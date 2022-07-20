@@ -8,7 +8,7 @@ require 'docker'
 require 'yaml'
 require 'time'
 
-$ZLOG_COLLECTOR_VERSION = '1.59.0'
+$ZLOG_COLLECTOR_VERSION = '1.60.0'
 
 class PathMappings 
   def initialize
@@ -81,7 +81,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
   config_param :ze_path_map_file, :string, :default => ""
   config_param :ze_ns_svcgrp_map_file, :string, :default => ""
   config_param :ze_handle_host_as_config, :bool, :default => false 
-
+  config_param :cluster_name, :string, :default => ""
   config_section :format do
     config_set_default :@type, DEFAULT_LINE_FORMAT_TYPE
     config_set_default :output_type, DEFAULT_FORMAT_TYPE
@@ -209,6 +209,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     @zapi_support_uri = @zapi_uri.clone
     @zapi_support_uri.path = "/api/v2/support"
     @auth_token = conf["ze_log_collector_token"]
+    @cluster_name = conf["cluster_name"]
     log.info("ze_log_collector_vers=" + $ZLOG_COLLECTOR_VERSION)
     log.info("ze_log_collector_type=" + @ze_log_collector_type)
     log.info("ze_deployment_name=" + (conf["ze_deployment_name"].nil? ? "<not set>": conf["ze_deployment_name"]))
@@ -218,6 +219,7 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
     log.info("ze_path_map_file=" + @ze_path_map_file)
     log.info("ze_host_in_logpath=#{@ze_host_in_logpath}")
     log.info("ze_ns_svcgrp_map_file=" + @ze_ns_svcgrp_map_file)
+    log.info("cluster_name=" +(conf["cluster_name"].nil? ? "<not set>": conf["cluster_name"]))
     data = {}
     data['msg'] = "log collector starting"
     send_support_data(data)
@@ -607,6 +609,11 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
       unless kubernetes["labels"].nil?
         cfgs.merge!(kubernetes["labels"])
       end
+      # Allow Cluster name to be set via an env variable
+      if !@cluster_name.nil? and !@cluster_name.empty?
+        cfgs["cluster_name"] = @cluster_name
+      end
+
       # At this point k8s config should be set. Save these so a subsequent file-log
       # record for the same pod_id can use them.
       save_kubernetes_cfgs(cfgs)
@@ -706,6 +713,10 @@ class Fluent::Plugin::Zebrium < Fluent::Plugin::Output
         logbasename = record["_SYSTEMD_UNIT"].gsub(/\.service$/, '')
       elsif chunk_tag =~ /^k8s\.events/
         logbasename = "zk8s-events"
+        # Allow Cluster name to be set via an env variable
+        if !@cluster_name.nil? and !@cluster_name.empty?
+          cfgs["cluster_name"] = @cluster_name
+        end
       elsif chunk_tag =~ /^ztcp\.events\./
         ids["host"] = record_host.empty? ? "ztcp_host": record["host"]
         logbasename = record["logbasename"] ? record["logbasename"] : "ztcp_stream"
