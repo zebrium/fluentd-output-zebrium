@@ -19,10 +19,10 @@ Gem::Specification.new do |gem|
 
   gem.required_ruby_version = '>= 2.0.0'
 
-  gem.add_development_dependency "bundler", "~> 2"
+  gem.add_development_dependency 'bundler', '~> 2', '>= 2.2.33'
   gem.add_development_dependency 'rake', '~> 13'
   gem.add_development_dependency 'test-unit', '~> 3.1', '>= 3.1.0'
   gem.add_development_dependency 'codecov', '~> 0.1', '>= 0.1.10'
-  gem.add_runtime_dependency 'fluentd', '~> 0.14', '>= 0.14.12'
+  gem.add_runtime_dependency 'fluentd', '~> 1.14', '>= 1.14.2'
   gem.add_runtime_dependency 'httpclient', '~> 2.8', '>= 2.8.0'
 end
